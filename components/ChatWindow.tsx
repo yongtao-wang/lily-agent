@@ -10,6 +10,8 @@ export interface AttachmentRef {
   path: string;
   mimeType: string;
   sizeBytes: number;
+  company?: string;
+  companyPath?: string;
 }
 
 export interface UIMessage {
@@ -26,7 +28,18 @@ interface ChatWindowProps {
   customerCompany: string;
 }
 
-const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+const ALLOWED_MIME = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'application/pdf',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/csv',
+  'text/plain',
+  'text/markdown',
+];
+const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'pdf', 'xlsx', 'xls', 'csv', 'txt', 'md'];
 const MAX_SIZE_MB = 20;
 
 function uid(): string {
@@ -216,6 +229,7 @@ export default function ChatWindow({
           onSend={handleSend}
           disabled={isStreaming}
           allowedMimeTypes={ALLOWED_MIME}
+          allowedExtensions={ALLOWED_EXTENSIONS}
           maxSizeMB={MAX_SIZE_MB}
         />
       </div>

@@ -2,14 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '@/lib/config';
+import {
+  getCustomerCompany,
+  getCustomerUploadDir,
+  getRelativePath,
+  isAllowedUpload,
+  mimeTypeFor,
+  sanitizeFilename,
+  supportedUploadLabel,
+} from '@/lib/customer-files';
 import { appendFiles, type FileRef } from '@/lib/session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-function sanitizeFilename(name: string): string {
-  return name.replace(/[/\\:*?"<>|]+/g, '_').slice(0, 120);
-}
 
 export async function POST(req: NextRequest) {
   let form: FormData;
@@ -29,7 +34,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'no files' }, { status: 400 });
   }
 
-  const baseDir = path.resolve(config.upload.uploadDir, sessionId);
+  const company = getCustomerCompany();
+  const baseDir = getCustomerUploadDir(company);
   fs.mkdirSync(baseDir, { recursive: true });
 
   const maxBytes = config.upload.maxSizeMB * 1024 * 1024;
@@ -38,9 +44,9 @@ export async function POST(req: NextRequest) {
 
   for (const entry of fileEntries) {
     if (!(entry instanceof File)) continue;
-    if (!allowed.has(entry.type)) {
+    if (!allowed.has(entry.type) && !isAllowedUpload(entry.name, entry.type)) {
       return NextResponse.json(
-        { error: `不支持的文件类型：${entry.name} (${entry.type || '未知'})` },
+        { error: `不支持的文件类型：${entry.name} (${entry.type || '未知'})。仅支持 ${supportedUploadLabel()}` },
         { status: 415 },
       );
     }
@@ -60,9 +66,11 @@ export async function POST(req: NextRequest) {
 
     saved.push({
       filename: entry.name,
-      path: path.relative(process.cwd(), absPath),
-      mimeType: entry.type,
+      path: getRelativePath(absPath),
+      mimeType: mimeTypeFor(entry.name, entry.type),
       sizeBytes: entry.size,
+      company,
+      companyPath: getRelativePath(baseDir),
     });
   }
 

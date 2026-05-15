@@ -1,0 +1,4 @@
+interface:
+  display_name: "Customer File Standards"
+  short_description: "Review customer website materials against standards"
+  default_prompt: "Use $customer-file-standards to review a customer materials folder against the file standards."

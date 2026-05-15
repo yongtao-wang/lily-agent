@@ -1,6 +1,6 @@
 export const config = {
   model: 'claude-sonnet-4-6',
-  maxTokens: 1024,
+  maxTokens: 1800,
   temperature: 0.3,
 
   demoCustomer: {
@@ -18,9 +18,27 @@ export const config = {
   ] as const,
 
   upload: {
-    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
+    allowedMimeTypes: [
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'application/pdf',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/csv',
+      'text/plain',
+      'text/markdown',
+    ],
+    allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'pdf', 'xlsx', 'xls', 'csv', 'txt', 'md'],
     maxSizeMB: 20,
     uploadDir: './uploads',
+    companyRootDir: './uploads/customers',
+  },
+
+  fileReview: {
+    standardsDir: './standards/customer-file-review',
+    maxExtractCharsPerFile: 6000,
+    maxFilesPerReview: 40,
   },
 
   escalation: {

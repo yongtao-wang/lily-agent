@@ -1,6 +1,6 @@
 # Prompt Design
 
-**TL;DR.** The system prompt has three knowledge layers (persona / stage-filtered scripts / unfiltered QA bank) and six behavior rules, plus a conditional post-escalation directive. Each layer enforces a different concern: voice (persona), stage-appropriate content (scripts), question-pattern matching (QA), and policy (rules). The structure was chosen because over-constraining any single layer made responses brittle in testing.
+**TL;DR.** The system prompt has three knowledge layers (persona / stage-filtered scripts / unfiltered QA bank) and seven behavior rules, plus a conditional post-escalation directive. Each layer enforces a different concern: voice (persona), stage-appropriate content (scripts), question-pattern matching (QA), and policy (rules). Two of the rules pair with model tools — rule #4 gates `notify_project_manager`, rule #7 gates `review_customer_files`. The structure was chosen because over-constraining any single layer made responses brittle in testing.
 
 This is the "unique IP" of the project. Most of it is not visible from reading code comments — it's rationale.
 
@@ -16,7 +16,7 @@ A single mega-template would be either too rigid (小鹏 mechanically repeats PM
 | Stage scripts | `knowledge/客服阶段话术库.xlsx` `话术库表` | Yes | Made-up timelines / deliverables / process steps |
 | QA bank | `knowledge/客服阶段话术库.xlsx` `问答表` | No | Missing the standard answer to a known question |
 
-Then six **behavior rules** sit on top and enforce policy (passivity, format, escalation, file handling) that's orthogonal to content.
+Then seven **behavior rules** sit on top and enforce policy (passivity, format, escalation, file handling, materials review) that's orthogonal to content.
 
 ---
 
@@ -86,7 +86,7 @@ At scale (~50+ entries) this design breaks; see §"Drift risks" below.
 
 ---
 
-## 5. Behavior rules 1–6 (verbatim)
+## 5. Behavior rules 1–7 (verbatim)
 
 These live at the bottom of the system prompt. They're peers, not hierarchical. Each pairs a condition with a dialog constraint.
 
@@ -104,6 +104,13 @@ These live at the bottom of the system prompt. They're peers, not hierarchical. 
    只做信息收集、共情回应、和"已通知，请稍候"的衔接。给客户的回复中应包含这层意思：
    "${config.escalation.handoffMessage}"
 6. 当客户上传文件，简要确认收到并说明会一并转交。
+7. 资料标准检查：
+   - 只有当客户明确要求"检查/分析/审核/判断资料是否符合标准"时，才调用 review_customer_files 工具。
+   - 客户只是上传文件、补充文件、说明文件内容时，不要调用 review_customer_files；只确认收到。
+   - 客户可要求整体检查，也可要求某个方面（例如 首页、产品详情页、图片、品牌素材）。
+     调用工具时按客户要求选择最接近的 scope。
+   - 工具返回资料清单、可读内容和标准后，按客户可读的双语报告输出，所有结论必须引用
+     精确文件路径、文件夹路径、字段或短句作为证据；证据不足时标记"需确认"，不要编造。
 ```
 
 What each enforces:
@@ -116,12 +123,19 @@ What each enforces:
 | 4 | Five enum conditions | Must call `notify_project_manager` |
 | 5 | After tool call | Embed the `handoffMessage` semantics in reply |
 | 6 | File attachment present | Acknowledge + promise to forward |
+| 7 | Explicit "check / audit / review materials" intent | Call `review_customer_files` with the right `scope`, then write a bilingual report with file-path evidence |
 
-Note that rule #4 conditions are stated as **concrete trigger sentences**, not "use judgment". That's why the model fires reliably on "我想找人聊" without needing keyword matching in code. Verified in AC #8 and #11.
+Note that rules #4 and #7 conditions are stated as **concrete trigger sentences**, not "use judgment". That's why the model fires `notify_project_manager` reliably on "我想找人聊" (verified in AC #8/#11) and fires `review_customer_files` reliably on "请帮我整体检查一下我上传的资料" (verified in the file-review smoke test) — without needing keyword matching in code.
+
+Rule #7 also has an explicit **negative** clause ("客户只是上传文件、补充文件、说明文件内容时，不要调用"). Without it, the model tended to fire the review tool on every upload turn, which is expensive and unhelpful when the customer is still mid-collection.
 
 ---
 
-## 6. Escalation triggers — code/prompt sync
+## 6. Tool schemas — code/prompt sync
+
+Two tool schemas live alongside the prompt. Neither is auto-linked; you must edit both sides when changing enums.
+
+### Escalation (`notify_project_manager`)
 
 The tool schema in `lib/escalation.ts` has five `reason` enums:
 
@@ -133,7 +147,28 @@ explicit_request       ←→  rule #4 bullet 3 (明确要求"找人")
 unresolved_after_3_rounds ←→  rule #4 bullet 4 (追问 3 轮以上)
 ```
 
-**Critical**: these are not auto-linked. If you add a sixth reason to the tool, you must also add a sixth bullet to rule #4. If you remove one, do both. There is no compile-time check.
+If you add a sixth reason to the tool, you must also add a sixth bullet to rule #4. If you remove one, do both. There is no compile-time check.
+
+### File review (`review_customer_files`)
+
+The tool schema in `lib/file-review.ts` has ten `scope` enums and a required `request` string. Each scope drives `referencesForScope()`, which picks which Markdown files under `standards/customer-file-review/references/` get inlined into the tool_result:
+
+```
+overall          → all 9 module references (start-here + preparation + 7 modules)
+preparation      → 01-preparation-rules.md
+brand_assets     → 03-brand-assets.md
+homepage         → 04-homepage.md
+product_category → 05-product-category.md
+product_detail   → 06-product-detail.md
+about_us         → 07-about-us.md
+solutions        → 08-solutions.md
+case_library     → 09-case-library.md
+images           → 01-preparation-rules.md + 03 + 04 + 06 (image-bearing modules)
+```
+
+The fixed files (`workflow.md`, `status-definitions.md`, `report-template.md`) are always included, so the model always sees the status vocabulary (`符合 / 缺失 / 需确认 / 可优化`) and the report shape.
+
+Triple sync surface: if you add an eleventh scope, you must (1) add the enum value in `fileReviewTool.input_schema`, (2) add an entry to `referencesForScope()`, (3) add the matching `references/*.md` if it's a new module, and (4) optionally mention the new scope in rule #7's parenthetical example list. The prompt doesn't enumerate scopes — it relies on the tool schema's `description` — so rule #7 only needs editing if you want to nudge model choice.
 
 ---
 
@@ -199,12 +234,17 @@ Approximate token cost per user message:
 | Customer/stage block | 50 |
 | Stage scripts (filtered) | 100–400 |
 | Full QA bank | 1000 |
-| Behavior rules 1–6 | 400 |
+| Behavior rules 1–7 | 500 |
 | Escalated block (conditional) | 80 |
 | Conversation history | grows per turn |
-| **Subtotal system** | **~3000** |
+| **Subtotal system** | **~3100** |
 
-At Sonnet-4 input pricing (~$3/M tokens), the system prompt alone costs ~$0.009 per turn. A 20-turn conversation is ~$0.18 baseline + output + history. Escalation turns double the input cost because of the tool round trip.
+At Sonnet-4 input pricing (~$3/M tokens), the system prompt alone costs ~$0.009 per turn. A 20-turn conversation is ~$0.18 baseline + output + history.
+
+Tool round trips add input cost on top:
+
+- **Escalation turn**: roughly doubles input (system prompt re-sent for the post-tool continuation).
+- **File-review turn**: heaviest path. The tool_result includes the file inventory, extracted content (capped at `maxExtractCharsPerFile = 6000` chars × up to `maxFilesPerReview = 40` files), the workflow / status / template trio, and the scope's reference Markdown(s). A typical `overall` review against ~10 files sends 15–40 K input tokens just for the tool_result — multiples of the base system prompt. Sub-scope reviews (`homepage`, `images`, etc.) load fewer references and are correspondingly cheaper.
 
 **Easy 10× win**: mark persona + QA bank as `cache_control: { type: 'ephemeral' }`. The first request still pays full price; subsequent requests within 5 minutes read cached tokens at 1/10th cost. Single change in `lib/claude.ts`:
 
@@ -237,4 +277,5 @@ Things that work today but will get worse:
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — where `buildSystemPrompt` is called from
 - [ESCALATION.md](ESCALATION.md) — the tool schema referenced by rule #4
+- [FILE_REVIEW.md](FILE_REVIEW.md) — the tool schema referenced by rule #7, plus the standards corpus
 - [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md) — where the persona / scripts / QA come from

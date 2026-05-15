@@ -1,6 +1,6 @@
 # Development
 
-**TL;DR.** `npm install && npm run dev` on port 3000. The 13 acceptance criteria each have a copy-pasteable test below. Knobs live in `lib/config.ts`. When something looks wrong, check `logs/escalations.log`, the dev-server stderr, and the browser devtools Network → EventStream tab.
+**TL;DR.** `npm install && npm run dev` on port 3000. The 13 original acceptance criteria each have a copy-pasteable test below, plus a smoke test for the customer-file-review feature. Knobs live in `lib/config.ts`. When something looks wrong, check `logs/escalations.log`, the dev-server stderr, and the browser devtools Network → EventStream tab.
 
 ---
 
@@ -38,7 +38,7 @@ The 13 ACs from spec §13, mapped to test recipes. Run the dev server before any
 | 4 | Stage button → 小鹏 acks with stage talking points | Open browser, click `首页设计`, verify response references 图片素材 + 本周 |
 | 5 | QA-style question → standard-flavored answer | Type "我想看你们给别人做的详情页参考"; verify 小鹏 redirects to placeholder or offers alternatives |
 | 6 | Upload jpg + pdf lands on disk | See §3 upload test below |
-| 7 | Reject >20MB and non-allowlist mime | See §3 upload test below |
+| 7 | Reject >20MB and non-allowlist mime/extension | See §3 upload test below |
 | 8 | 3-round dissatisfaction → tool call + handoff | See §4 escalation test below |
 | 9 | Log block written with all fields | `cat logs/escalations.log` after AC #8 |
 | 10 | Post-escalation: 小鹏 passive, no re-call | After AC #8, send another message; verify no second log entry, response stays in collect/forward mode |
@@ -46,9 +46,13 @@ The 13 ACs from spec §13, mapped to test recipes. Run the dev server before any
 | 12 | Model swap via config | Edit `lib/config.ts` model field, restart, send a message |
 | 13 | Refresh resets session | Hard-refresh browser; verify new session opens fresh |
 
+The file-review feature is not part of the original 13 ACs. Its smoke test lives in §4 "Materials review".
+
 ---
 
 ## 3. Upload endpoint tests
+
+Heads-up: uploads no longer land in `uploads/{sessionId}/`. The route resolves `getCustomerCompany()` (currently `config.demoCustomer.company`, `东永盛`) and writes to `uploads/customers/<company>/`. The returned `FileRef` includes `company` and `companyPath` fields.
 
 ### Valid PNG (AC #6)
 
@@ -61,10 +65,21 @@ curl -sS -X POST http://localhost:3000/api/upload \
   -F "files=@/tmp/test.png;type=image/png"
 
 # Verify
-ls -la uploads/test-upload/
+ls -la uploads/customers/东永盛/
 ```
 
-Expected: JSON `{"files":[{"filename":"test.png","path":"uploads/test-upload/...","mimeType":"image/png","sizeBytes":68}]}`, file present in `uploads/test-upload/`.
+Expected: JSON like `{"files":[{"filename":"test.png","path":"uploads/customers/东永盛/...","mimeType":"image/png","sizeBytes":68,"company":"东永盛","companyPath":"uploads/customers/东永盛"}]}`, file present in `uploads/customers/东永盛/`.
+
+### Valid xlsx (file-review feature)
+
+```bash
+# A real xlsx or csv works the same way. Server validates either by mime OR extension.
+curl -sS -X POST http://localhost:3000/api/upload \
+  -F "sessionId=test-upload" \
+  -F "files=@some-materials.xlsx;type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+```
+
+Expected: HTTP 200; the file's extracted content becomes visible to the model when `review_customer_files` later fires.
 
 ### Oversize (AC #7)
 
@@ -86,7 +101,7 @@ curl -sS -X POST http://localhost:3000/api/upload \
   -F "files=@/tmp/bad.zip;type=application/zip"
 ```
 
-Expected: HTTP 415, body `{"error":"不支持的文件类型：bad.zip (application/zip)"}`.
+Expected: HTTP 415, body `{"error":"不支持的文件类型：bad.zip (application/zip)。仅支持 jpg / jpeg / png / webp / pdf / xlsx / xls / csv / txt / md"}`. The current allowlist (mime + extension) is in `config.upload`; client-side mirror lives in `components/ChatWindow.tsx`.
 
 ---
 
@@ -171,6 +186,42 @@ npm run dev
 
 In a browser: open localhost:3000, click a stage, send a message, then hard-refresh. The new page should show the opening greeting and the six stage buttons, with no carryover.
 
+### Materials review (file-review feature)
+
+Smoke test for `review_customer_files`. Make sure `uploads/customers/东永盛/` has at least one file (use the upload curl above or drop a file in via the UI).
+
+```bash
+curl -sN -X POST http://localhost:3000/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"sessionId":"test-review","userMessage":{"content":"请帮我整体检查一下我上传的资料"}}' \
+  --max-time 90
+```
+
+Expected: SSE stream containing a bilingual report ("资料检查结果 / Materials Readiness Review") with a `模块 / Module` table that uses only the four allowed statuses (`符合 / 缺失 / 需确认 / 可优化`) and cites file paths like `uploads/customers/东永盛/...` as evidence. Ends with `{"type":"done"}`. No `escalated` event.
+
+Negative test — make sure a pure upload turn does **not** trigger the tool:
+
+```bash
+SESSION="test-no-review-$(date +%s)"
+curl -sN -X POST http://localhost:3000/api/chat \
+  -H 'Content-Type: application/json' \
+  -d "{\"sessionId\":\"$SESSION\",\"userMessage\":{\"content\":\"我刚刚上传了产品资料，请收下。\"}}" \
+  --max-time 60
+```
+
+Expected: 小鹏 acknowledges the upload (rule #6) but does **not** stream a full review. If she does, rule #7's negative clause has regressed — re-tighten the prompt before shipping.
+
+Sub-scope test (any of `homepage`, `brand_assets`, `product_detail`, `product_category`, `about_us`, `solutions`, `case_library`, `preparation`, `images`):
+
+```bash
+curl -sN -X POST http://localhost:3000/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"sessionId":"test-scope","userMessage":{"content":"帮我看看首页相关的资料"}}' \
+  --max-time 90
+```
+
+Expected: report focuses on homepage-related findings; reference Markdown bundled into the tool_result is just `04-homepage.md` (plus the always-loaded `00-start-here.md` / `01-preparation-rules.md`).
+
 ---
 
 ## 5. Where to look when things break
@@ -212,13 +263,20 @@ demoCustomer: {
 
 ```ts
 upload: {
-  allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
+  allowedMimeTypes: [
+    'image/jpeg', 'image/png', 'image/webp', 'application/pdf',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/csv', 'text/plain', 'text/markdown',
+  ],
+  allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'pdf', 'xlsx', 'xls', 'csv', 'txt', 'md'],
   maxSizeMB: 50,                    // was 20
   uploadDir: './uploads',
+  companyRootDir: './uploads/customers',
 },
 ```
 
-If you broaden the mime allowlist, also update the `ALLOWED_MIME` constant in `components/ChatWindow.tsx` for the client-side validation.
+If you broaden the allowlist, also update the `ALLOWED_MIME` and `ALLOWED_EXTENSIONS` constants in `components/ChatWindow.tsx` for the client-side validation, and add a server-side `mimeTypeFor()` case in `lib/customer-files.ts` if the new extension needs a non-default mime fallback.
 
 ### Change escalation log path
 
@@ -230,6 +288,18 @@ escalation: {
 ```
 
 The dir is auto-created on first write.
+
+### Tune the file-review tool
+
+```ts
+fileReview: {
+  standardsDir: './standards/customer-file-review',
+  maxExtractCharsPerFile: 6000,    // chars of extracted text per file in tool_result
+  maxFilesPerReview: 40,           // cap on files walked; older files (sort order) win
+},
+```
+
+`standardsDir` is resolved with `path.resolve()` so a relative path is taken from the dev server's CWD. Lowering `maxExtractCharsPerFile` makes review turns cheaper but risks losing trailing rows of long xlsx sheets; raising `maxFilesPerReview` is what to do if a real customer folder has more than 40 files.
 
 ### Edit the handoff message
 
@@ -263,6 +333,16 @@ Edit `lib/prompt.ts`. Add a numbered item to the `【行为约束】` block. Kee
 2. Rule #4 in `lib/prompt.ts` — add a bullet describing when to use it.
 3. Optionally adjust the log format in `notifyProjectManager` if the new reason needs special fields.
 
+### Add a new file-review scope
+
+1. `fileReviewTool.input_schema.properties.scope.enum` (lib/file-review.ts) — add the new value.
+2. `referencesForScope()` in the same file — map the new scope to the right reference Markdown(s) under `standards/customer-file-review/references/`.
+3. If it's a brand-new module, add the corresponding `references/<n>-<name>.md` file. Keep the numbering convention; `02` is intentionally absent.
+4. Optionally nudge the model in `lib/prompt.ts` rule #7's example list.
+5. Restart server.
+
+Test with a curl that names the new scope's domain (e.g., "请帮我检查证书相关资料") and check the streamed report stays scoped.
+
 ### Tighten or relax post-escalation behavior
 
 Edit the `escalatedBlock` in `lib/prompt.ts`. Current text says "你只做：共情回应、信息收集、补充提问". If you want 小鹏 to e.g. still answer simple factual questions, soften the language. Test with the AC #10 recipe.
@@ -273,9 +353,11 @@ Edit the `escalatedBlock` in `lib/prompt.ts`. Current text says "你只做：共
 
 - **Next.js 14.2.15** has a 2025-12-11 security advisory. Build works fine; upgrade to Next 15 when you want — see `docs/ARCHITECTURE.md` §6.
 - **`@anthropic-ai/sdk@0.32.1`** is older than current. Predates `DocumentBlockParam`, so PDFs go through as text markers rather than native document blocks. Acceptable per spec; bump the SDK if you want PDF content visible to the model.
-- **No prompt caching** — each request resends ~3000 system-prompt tokens. See `docs/PROMPT_DESIGN.md` §10 for the `cache_control` upgrade.
+- **No prompt caching** — each request resends ~3100 system-prompt tokens. See `docs/PROMPT_DESIGN.md` §10 for the `cache_control` upgrade. File-review turns are extra-heavy because the tool_result is 15–40 K tokens and is not cached either.
 - **No session TTL.** `lib/session.ts` `Map` accumulates orphaned sessions indefinitely. Fine for demo; add LRU eviction before production.
-- **No HMR for knowledge files.** Edit `csr.md` or the xlsx → restart server. The `loadKnowledge()` module cache doesn't watch files.
+- **No HMR for knowledge files.** Edit `csr.md` or the xlsx → restart server. The `loadKnowledge()` module cache doesn't watch files. The file-review tool's standards corpus is **not** cached — Markdown edits under `standards/customer-file-review/` take effect on the next tool call without a restart.
+- **`pdf-parse@2.4.5` is best-effort.** Some PDFs (scanned, password-protected, weirdly encoded) return no text. The review tool surfaces this as `Note: PDF text extraction returned no text` in the inventory, and the model is instructed to fall back to `需确认` rather than fabricate. If real customers send PDFs that fail often, evaluate `pdfjs-dist` or an OCR step.
+- **Single-customer demo.** `getCustomerCompany()` returns `config.demoCustomer.company` — all uploads land in one shared `uploads/customers/东永盛/` folder, and `review_customer_files` reads the same folder for every session. Multi-customer deployment requires a per-session customer identity and a real `getCustomerCompany(sessionId)` implementation.
 
 ---
 
@@ -284,5 +366,6 @@ Edit the `escalatedBlock` in `lib/prompt.ts`. Current text says "你只做：共
 - [AGENTS.md](../AGENTS.md) — project orientation
 - [ARCHITECTURE.md](ARCHITECTURE.md) — what each file does
 - [PROMPT_DESIGN.md](PROMPT_DESIGN.md) — system prompt structure
-- [ESCALATION.md](ESCALATION.md) — tool flow and log format
+- [ESCALATION.md](ESCALATION.md) — escalation tool flow and log format
+- [FILE_REVIEW.md](FILE_REVIEW.md) — review tool, standards corpus, content extractors
 - [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md) — xlsx structure

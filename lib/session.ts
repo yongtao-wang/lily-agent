@@ -3,6 +3,8 @@ export interface FileRef {
   path: string;
   mimeType: string;
   sizeBytes: number;
+  company?: string;
+  companyPath?: string;
 }
 
 export interface ChatMessage {

@@ -1,6 +1,6 @@
 # 小鹏 AI 客服 Web Demo — Agent Guide
 
-**TL;DR.** This is a single-page conversational AI customer-service web demo named "小鹏", written in Next.js 14 + TypeScript + Anthropic SDK. The customer chats 1:1 with 小鹏; 小鹏 answers from a knowledge base (persona file + scripts + QA bank); when she can't handle the issue she calls a tool that writes a structured escalation log. The demo is a precursor to a 企业微信 (WeChat Work) integration, so the session / escalation / knowledge layers are designed to be swap-friendly.
+**TL;DR.** This is a single-page conversational AI customer-service web demo named "小鹏", written in Next.js 14 + TypeScript + Anthropic SDK. The customer chats 1:1 with 小鹏; 小鹏 answers from a knowledge base (persona file + scripts + QA bank), accepts file uploads into a per-company folder, and exposes two tools: `notify_project_manager` (writes a structured escalation log) and `review_customer_files` (audits uploaded materials against a standards corpus and returns a bilingual report). The demo is a precursor to a 企业微信 (WeChat Work) integration, so the session / escalation / knowledge / file-review layers are designed to be swap-friendly.
 
 Read this file first. Cross-references at the bottom point into `docs/` for deep dives.
 
@@ -14,9 +14,10 @@ What 小鹏 does:
 
 - Greets the customer and asks (or accepts) the current project stage.
 - Answers stage-specific questions using the existing playbook (`knowledge/客服阶段话术库.xlsx`) and persona file (`knowledge/csr.md`).
-- Accepts file uploads (image / PDF) and acknowledges receipt; files are stored on disk for future hand-off.
+- Accepts file uploads (images, PDF, xlsx/xls, csv, txt, md) and acknowledges receipt; files land in `uploads/customers/<company>/` for future hand-off.
 - Detects when she should not handle the issue herself (dissatisfaction, commercial questions, explicit "find me a human", out-of-scope, 3+ rounds unresolved) and calls a `notify_project_manager` tool.
 - After the tool fires, continues chatting in a passive collect-and-empathize mode until the (simulated) PM takes over.
+- When the customer explicitly asks to **check / audit / review** the uploaded materials, calls a `review_customer_files` tool. The handler builds a file inventory, extracts readable content (xlsx via SheetJS, pdf via `pdf-parse`, txt/md/csv as text, image dimensions only), bundles it with the relevant slice of the standards corpus under `standards/customer-file-review/`, and feeds the whole thing back as a tool_result. 小鹏 then writes a bilingual report citing exact file paths as evidence.
 
 What 小鹏 does NOT do (intentional — see `lily-mvp-ticket.md` §3):
 
@@ -25,15 +26,15 @@ What 小鹏 does NOT do (intentional — see `lily-mvp-ticket.md` §3):
 - No PM admin UI. The escalation hand-off is a log file.
 - No real notifications (email / WeChat Work / Lark) — that's the V2 swap point.
 - No group chat, no `@小鹏` mentions.
-- No image OCR or vision; files are stored, not parsed.
+- No image OCR or vision; images are stored and their dimensions read, but pixel content is never analyzed. PDF / xlsx / text content **is** extracted, but only on demand when the review tool fires.
 
 ---
 
 ## 2. Status
 
-The MVP is feature-complete and all 13 acceptance criteria from the original spec are verified. Three real escalations are sitting in `logs/escalations.log` from manual end-to-end testing.
+The original 13-AC MVP is feature-complete and verified; three escalations sit in `logs/escalations.log` from manual end-to-end testing. The customer-file-review feature was added on top (uncommitted at time of writing) and has been smoke-tested end-to-end against `uploads/customers/东永盛/`.
 
-Stack: Next.js 14.2.15 (App Router), React 18, TypeScript 5, Tailwind 3, `@anthropic-ai/sdk@0.32.1`, `xlsx@0.18.5`, `react-markdown@9`, `nanoid@5`.
+Stack: Next.js 14.2.15 (App Router), React 18, TypeScript 5, Tailwind 3, `@anthropic-ai/sdk@0.32.1`, `xlsx@0.18.5` (knowledge load + spreadsheet extraction), `pdf-parse@2.4.5` (PDF text extraction), `react-markdown@9`, `nanoid@5`.
 
 Model: `claude-sonnet-4-6` (configured in `lib/config.ts`, swap-friendly).
 
@@ -75,14 +76,20 @@ lily-agent/
 │   ├── knowledge.ts              loads csr.md + xlsx, caches in module scope
 │   ├── prompt.ts                 assembles system prompt per request
 │   ├── claude.ts                 Anthropic SDK wrapper, streaming + tool loop
-│   ├── escalation.ts             tool definition + notifyProjectManager()
+│   ├── escalation.ts             notify_project_manager tool + log writer
+│   ├── customer-files.ts         per-company upload paths, mime/ext helpers
+│   ├── file-review.ts            review_customer_files tool + context builder
 │   └── session.ts                in-memory Map<sessionId, Session>
 ├── knowledge/
 │   ├── csr.md                    小鹏's persona archive
 │   └── 客服阶段话术库.xlsx       scripts + QA library
+├── standards/customer-file-review/   vendor-neutral standards corpus (workflow,
+│                                     status defs, report template, 9 module refs,
+│                                     source PDFs, an inventory script, examples)
+├── skills/customer-file-standards/   Codex skill manifest pointing at the corpus
 ├── docs/                         agent-readable deep dives (see §6)
 ├── logs/escalations.log          runtime, structured PM-notification log
-├── uploads/{sessionId}/          runtime, customer-uploaded files
+├── uploads/customers/<company>/  runtime, customer-uploaded files (per company)
 └── .env.local                    runtime, ANTHROPIC_API_KEY
 ```
 
@@ -94,15 +101,17 @@ Read these before touching code. They prevent the most common mistakes:
 
 1. **All prompt logic lives in `lib/prompt.ts`.** Don't put behavior rules into `route.ts` or into the tool description. The prompt is the contract; spread it out and it becomes invisible.
 
-2. **`lib/escalation.ts` schema and `lib/prompt.ts` rule #4 must stay in sync.** The tool's `reason` enum has five values, and rule #4 has five trigger conditions. If you add a sixth trigger, you must update both. There is no auto-link.
+2. **Tool schemas and prompt rules must stay in sync.** Two manual links, no compile-time check:
+   - `lib/escalation.ts` `reason` enum (5 values) ↔ `lib/prompt.ts` rule #4 (5 bullets). Add a trigger → update both.
+   - `lib/file-review.ts` `scope` enum (10 values) ↔ `lib/prompt.ts` rule #7 + the `referencesForScope()` map in the same file. Add a scope → update both, and add the matching reference under `standards/customer-file-review/references/` if it doesn't already exist.
 
-3. **`lib/config.ts` is the single source of truth for tunables.** Model name, customer info, stage list, upload limits, escalation log path, placeholder design link, escalation handoff message — all live there. Don't hardcode any of these elsewhere.
+3. **`lib/config.ts` is the single source of truth for tunables.** Model name, max tokens, customer info, stage list, upload allowlist (mime + extension), per-company upload root, escalation log path, placeholder design link, handoff message, and `fileReview` knobs (`standardsDir`, `maxExtractCharsPerFile`, `maxFilesPerReview`) — all live there. Don't hardcode any of these elsewhere. The client-side mirror in `components/ChatWindow.tsx` (`ALLOWED_MIME`, `ALLOWED_EXTENSIONS`, `MAX_SIZE_MB`) has to be edited alongside the server config; there is no automatic share.
 
 4. **Session state is server-authoritative.** The client only sends the *latest* user message in each `/api/chat` POST. The server holds the canonical history keyed by `sessionId`. Don't add a "send full history" code path; that would break the trust model.
 
 5. **The persona + KB are cached at module scope in `loadKnowledge()`.** Edits to `knowledge/csr.md` or the xlsx require a `npm run dev` restart to pick up.
 
-6. **SDK pinned to `@anthropic-ai/sdk@0.32.1`.** This is older than current and predates native PDF document blocks. PDF uploads are passed to Claude as `[客户上传文件: filename.pdf]` text markers. Images go through as native `image` blocks. If you bump the SDK, see `docs/ARCHITECTURE.md` for where to enable document blocks.
+6. **SDK pinned to `@anthropic-ai/sdk@0.32.1`.** This is older than current and predates native PDF document blocks. Non-image uploads are passed to Claude as text markers like `[客户上传文件: foo.pdf（application/pdf, 240 KB，公司资料文件夹：uploads/customers/东永盛）— 文件已落盘。…]` (see `attachmentsToBlocks` in `lib/claude.ts`). Images still go through as native `image` blocks. When the model needs the actual content of a non-image file, it calls `review_customer_files`, which extracts on demand. If you bump the SDK, see `docs/ARCHITECTURE.md` for where to enable document blocks.
 
 7. **The escalated session flag is one-way for the demo.** Once `session.escalated = true`, there is no "un-escalate". The post-escalation directive will be appended to every subsequent system prompt until session reset (browser refresh).
 
@@ -117,9 +126,10 @@ Read these before touching code. They prevent the most common mistakes:
 | If you're touching… | Read |
 |---|---|
 | Anything (orientation) | This file → `docs/ARCHITECTURE.md` |
-| Prompt text, behavior rules, tool description | `docs/PROMPT_DESIGN.md` |
+| Prompt text, behavior rules, tool descriptions | `docs/PROMPT_DESIGN.md` |
 | The xlsx, stage mapping, adding a new stage | `docs/KNOWLEDGE_BASE.md` |
 | The escalation tool, log format, real-notification swap | `docs/ESCALATION.md` |
+| The review tool, standards corpus, extending scopes / extractors | `docs/FILE_REVIEW.md` |
 | Local testing, debugging, config knobs | `docs/DEVELOPMENT.md` |
 | Setup for a human user | `README.md` |
 
@@ -140,4 +150,5 @@ The original spec lives at `/Users/yongtao/Desktop/lily-mvp-ticket.md` — secti
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — request flow, per-file purpose, data invariants
 - [docs/PROMPT_DESIGN.md](docs/PROMPT_DESIGN.md) — how the system prompt is layered and what each layer enforces
+- [docs/FILE_REVIEW.md](docs/FILE_REVIEW.md) — the review tool, standards corpus, content extractors
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — local dev recipes

@@ -3,6 +3,7 @@ import { loadKnowledge } from '@/lib/knowledge';
 import { buildSystemPrompt } from '@/lib/prompt';
 import { streamChat } from '@/lib/claude';
 import { escalationTool, notifyProjectManager } from '@/lib/escalation';
+import { buildFileReviewContext, fileReviewTool } from '@/lib/file-review';
 import {
   appendMessage,
   getOrCreateSession,
@@ -69,15 +70,24 @@ export async function POST(req: NextRequest) {
         const result = await streamChat({
           system: systemPrompt,
           messages: session.messages,
-          tools: [escalationTool as never],
+          tools: [escalationTool as never, fileReviewTool as never],
           onText: (delta) => {
             assistantText += delta;
             send({ type: 'text', delta });
           },
           onToolUse: async (toolUse) => {
-            if (toolUse.name !== 'notify_project_manager') {
-              return 'unknown tool';
+            if (toolUse.name === 'review_customer_files') {
+              const input = toolUse.input as {
+                scope?: string;
+                request?: string;
+              };
+              return await buildFileReviewContext({
+                scope: input.scope ?? 'overall',
+                request: input.request ?? userMessage.content,
+              });
             }
+            if (toolUse.name !== 'notify_project_manager') return 'unknown tool';
+
             const input = toolUse.input as {
               reason?: string;
               summary?: string;

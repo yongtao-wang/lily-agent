@@ -11,18 +11,26 @@ interface ComposerProps {
   onSend: (text: string, files: File[]) => Promise<void> | void;
   disabled?: boolean;
   allowedMimeTypes: string[];
+  allowedExtensions: string[];
   maxSizeMB: number;
 }
 
-export default function ComposerBar({ onSend, disabled, allowedMimeTypes, maxSizeMB }: ComposerProps) {
+export default function ComposerBar({
+  onSend,
+  disabled,
+  allowedMimeTypes,
+  allowedExtensions,
+  maxSizeMB,
+}: ComposerProps) {
   const [text, setText] = useState('');
   const [pending, setPending] = useState<PendingFile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const validate = (file: File): string | null => {
-    if (!allowedMimeTypes.includes(file.type)) {
-      return `不支持的文件类型：${file.name}（${file.type || '未知'}）。仅支持 jpg / png / webp / pdf`;
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+    if (!allowedMimeTypes.includes(file.type) && !allowedExtensions.includes(ext)) {
+      return `不支持的文件类型：${file.name}（${file.type || '未知'}）。仅支持 ${allowedExtensions.join(' / ')}`;
     }
     if (file.size > maxSizeMB * 1024 * 1024) {
       return `文件过大：${file.name}（${(file.size / 1024 / 1024).toFixed(1)} MB，超过 ${maxSizeMB} MB）`;
@@ -101,7 +109,7 @@ export default function ComposerBar({ onSend, disabled, allowedMimeTypes, maxSiz
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
           className="shrink-0 w-10 h-10 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-lg disabled:opacity-50"
-          title="上传图片或 PDF"
+          title="上传资料文件"
         >
           📎
         </button>
@@ -109,7 +117,7 @@ export default function ComposerBar({ onSend, disabled, allowedMimeTypes, maxSiz
           ref={fileInputRef}
           type="file"
           multiple
-          accept={allowedMimeTypes.join(',')}
+          accept={[...allowedMimeTypes, ...allowedExtensions.map((ext) => `.${ext}`)].join(',')}
           className="hidden"
           onChange={(e) => {
             handleFiles(e.target.files);
@@ -137,6 +145,9 @@ export default function ComposerBar({ onSend, disabled, allowedMimeTypes, maxSiz
         >
           发送
         </button>
+      </div>
+      <div className="mt-1 pl-12 text-xs leading-5 text-gray-500">
+        支持 {allowedExtensions.join(' / ')}，单个文件不超过 {maxSizeMB} MB。上传后如需检查，请直接告诉小鹏要整体检查或检查某个方面。
       </div>
     </div>
   );

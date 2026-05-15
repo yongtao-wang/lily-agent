@@ -36,9 +36,10 @@ function attachmentsToBlocks(files: FileRef[]): UserContentBlock[] {
         },
       });
     } else {
+      const companyNote = f.companyPath ? `，公司资料文件夹：${f.companyPath}` : '';
       blocks.push({
         type: 'text',
-        text: `[客户上传文件: ${f.filename}（${f.mimeType}，${(f.sizeBytes / 1024).toFixed(0)} KB）— 文件已落盘，会一并转交项目经理，无需逐字解析其内容。]`,
+        text: `[客户上传文件: ${f.filename}（${f.mimeType}，${(f.sizeBytes / 1024).toFixed(0)} KB${companyNote}）— 文件已落盘。客户明确要求资料检查时，应调用 review_customer_files 工具，不要仅凭文件名判断。]`,
       });
     }
   }
