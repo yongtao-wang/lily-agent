@@ -8,7 +8,7 @@ This is the "unique IP" of the project. Most of it is not visible from reading c
 
 ## 1. Why a layered prompt, not a single template
 
-A single mega-template would be either too rigid (Lily mechanically repeats PM scripts) or too vague (Lily improvises timelines and pricing she shouldn't). The three knowledge layers address different failure modes:
+A single mega-template would be either too rigid (小鹏 mechanically repeats PM scripts) or too vague (小鹏 improvises timelines and pricing she shouldn't). The three knowledge layers address different failure modes:
 
 | Layer | Source | Filtered by stage? | Failure mode it prevents |
 |---|---|---|---|
@@ -25,7 +25,7 @@ Then six **behavior rules** sit on top and enforce policy (passivity, format, es
 `knowledge/csr.md` is injected verbatim at the top of the system prompt via:
 
 ```ts
-`你是 Lily。以下是你的人设档案：
+`你是 小鹏。以下是你的人设档案：
 
 ${kb.persona}
 ```
@@ -34,7 +34,7 @@ What's in it:
 
 - **Identity & role**: "AI出海营销顾问 / 智能客户成功助手", serving B2B 出海营销.
 - **Tone keywords**: 专业但不冰冷, 理性、有逻辑, 国际化表达, 高效率, 像"项目顾问"而不是"客服".
-- **Anti-examples**: explicitly contrasts "亲亲您好呢～请问有什么可以帮助您的呀～" (banned) with "您好，我是 Lily. 我可以协助您了解 SEO、AI 搜索曝光、独立站增长以及海外获客相关问题。" (correct).
+- **Anti-examples**: explicitly contrasts "亲亲您好呢～请问有什么可以帮助您的呀～" (banned) with "您好，我是 小鹏. 我可以协助您了解 SEO、AI 搜索曝光、独立站增长以及海外获客相关问题。" (correct).
 - **Boundary statements**: 不夸大效果, 不承诺虚假排名, 不使用"7天上首页"类表达, 不替代人工专家决策, 遇到复杂项目会转接专家团队.
 
 This is the **soft layer**. It shapes voice and stance but doesn't dictate what to say. We rely on the model's instruction following to honor it.
@@ -51,16 +51,16 @@ const stageScripts = stageId
 
 When the customer is in `homepage`, only the homepage row of `话术库表` enters the prompt — a ~50-line block from PM's actual playbook ("请您提供图片格式的素材… 我们争取本周提供首页设计稿…"). When in `collection`, only the collection script appears (素材收集包 talking points).
 
-The filter narrows Claude's vocabulary to *this stage's actual deliverables, timelines, and expectations*. Verified in the end-to-end tests (AC #4): customer said "我在首页设计阶段" and Lily came back with "图片格式素材 / 素材越充足效果越好 / 本周内输出首页设计稿" — those exact concepts come from the homepage script.
+The filter narrows Claude's vocabulary to *this stage's actual deliverables, timelines, and expectations*. Verified in the end-to-end tests (AC #4): customer said "我在首页设计阶段" and 小鹏 came back with "图片格式素材 / 素材越充足效果越好 / 本周内输出首页设计稿" — those exact concepts come from the homepage script.
 
 The block ends with a critical anti-copy directive:
 
 ```
-— 注意：以上话术是 PM 内部参考稿，**禁止原样复读**；按 Lily 人设和当前对话上下文改写后输出，
+— 注意：以上话术是 PM 内部参考稿，**禁止原样复读**；按 小鹏 人设和当前对话上下文改写后输出，
   禁用诸如 "@业务负责人" 这类指向 PM 内部协作的措辞。
 ```
 
-So Claude gets PM's raw notes but is told to paraphrase in Lily's voice. That's the bridge between layer 1 (persona) and layer 2 (content).
+So Claude gets PM's raw notes but is told to paraphrase in 小鹏's voice. That's the bridge between layer 1 (persona) and layer 2 (content).
 
 ---
 
@@ -79,7 +79,7 @@ const qaBlock = kb.qa.length
 All 11 QA entries are injected with their stage label, plus the instruction "按相关度自行挑选" (pick by relevance). Why no filter:
 
 - Customers don't stay neatly inside their current stage. Someone in `homepage` might ask an SEO question or a future-phase question.
-- Pre-filtering by stage would blind Lily to relevant standard answers that happen to be tagged with another stage.
+- Pre-filtering by stage would blind 小鹏 to relevant standard answers that happen to be tagged with another stage.
 - At 11 entries the unfiltered dump costs ~1000 tokens, which is acceptable.
 
 At scale (~50+ entries) this design breaks; see §"Drift risks" below.
@@ -153,7 +153,7 @@ Three deliberate choices:
 - **Says "不要再尝试独立解决".** Without this, the model might keep offering solutions even after the tool fired — defeating the point of escalation.
 - **Says "不要重复调用 notify_project_manager".** Without this, the model often re-fires the tool on every subsequent angry message, polluting the log.
 
-Verified in AC #10: post-escalation, customer said "帮我换成蓝色的", Lily recorded the request and forwarded to PM without trying to execute it herself.
+Verified in AC #10: post-escalation, customer said "帮我换成蓝色的", 小鹏 recorded the request and forwarded to PM without trying to execute it herself.
 
 ---
 
@@ -173,7 +173,7 @@ The stage line branches:
 - If `stageId` is set → "首页设计（homepage）"
 - If unset (customer clicked 跳过 or hasn't chosen) → instruction to ask gently
 
-Stage info lives in the customer block, not the rules block. That's intentional: Lily uses it as context to interpret questions, not as a hard constraint that overrides judgment when the customer wanders cross-stage.
+Stage info lives in the customer block, not the rules block. That's intentional: 小鹏 uses it as context to interpret questions, not as a hard constraint that overrides judgment when the customer wanders cross-stage.
 
 ---
 
@@ -183,9 +183,9 @@ Things I considered adding and rejected:
 
 - **Format templates per stage** (e.g., "always end with a question in homepage"). Over-constrains, makes responses sound stamped.
 - **Keyword blocklist beyond `亲～哦`**. The persona's positive examples crowd out bad patterns naturally.
-- **"Must mention X" per stage**. Would force Lily to always say "本周内交付" in homepage even when the question is about something unrelated. Bad UX.
+- **"Must mention X" per stage**. Would force 小鹏 to always say "本周内交付" in homepage even when the question is about something unrelated. Bad UX.
 - **Output length caps**. Sonnet 4 already self-limits to a few hundred Chinese chars per turn; an explicit cap would feel artificial.
-- **Forced tool result wording**. Rule #5 says "回复中应包含这层意思" but doesn't force exact text. Verified the model paraphrases in Lily's voice ("我已经将您的反馈和当前情况完整同步给您的项目经理…") which is more natural than a stamped phrase.
+- **Forced tool result wording**. Rule #5 says "回复中应包含这层意思" but doesn't force exact text. Verified the model paraphrases in 小鹏's voice ("我已经将您的反馈和当前情况完整同步给您的项目经理…") which is more natural than a stamped phrase.
 
 ---
 
@@ -225,9 +225,9 @@ Things that work today but will get worse:
 
 1. **QA bank scaling.** At 50+ entries, the unfiltered dump becomes expensive and noisy. Switch to embedding-based retrieval (top-K by similarity to the user's latest message). The `prompt.ts` interface accepts this — only `buildSystemPrompt` body changes.
 
-2. **Stage-tone drift.** If PM's `homepage` script reads more formal than their `collection` script, Lily's voice shifts when stage changes. Mitigation: add a sentence in rule #2 like "tone stays consistent across stages regardless of script formality".
+2. **Stage-tone drift.** If PM's `homepage` script reads more formal than their `collection` script, 小鹏's voice shifts when stage changes. Mitigation: add a sentence in rule #2 like "tone stays consistent across stages regardless of script formality".
 
-3. **Persona vs. script ambiguity.** `csr.md` casts Lily as a strategic GEO / AI Search consultant; the xlsx scripts cast her as a delivery-phase checklist runner. If a customer in `seo` stage asks deep GEO strategy questions, the two roles can conflict. This is in the source materials, not the code; product team should pick a stance.
+3. **Persona vs. script ambiguity.** `csr.md` casts 小鹏 as a strategic GEO / AI Search consultant; the xlsx scripts cast her as a delivery-phase checklist runner. If a customer in `seo` stage asks deep GEO strategy questions, the two roles can conflict. This is in the source materials, not the code; product team should pick a stance.
 
 4. **No prompt-level test harness.** Manual testing covered the 13 ACs. For ongoing quality (especially after edits to the prompt), a fixtures file with `(question, expected-traits)` pairs + a model judge would catch regressions. Not in scope for MVP.
 

@@ -8,7 +8,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        lily: {
+        brand: {
           50: '#f0f7ff',
           100: '#e0eefe',
           500: '#3b82f6',

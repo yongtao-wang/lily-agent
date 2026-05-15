@@ -126,14 +126,14 @@ export default function ComposerBar({ onSend, disabled, allowedMimeTypes, maxSiz
               void submit();
             }
           }}
-          placeholder={disabled ? 'Lily 正在回复…' : '输入消息，Enter 发送，Shift+Enter 换行'}
-          className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-[15px] focus:outline-none focus:border-lily-500 max-h-32"
+          placeholder={disabled ? '小鹏 正在回复…' : '输入消息，Enter 发送，Shift+Enter 换行'}
+          className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-[15px] focus:outline-none focus:border-brand-500 max-h-32"
           style={{ minHeight: '40px' }}
         />
         <button
           onClick={() => void submit()}
           disabled={disabled || (!text.trim() && pending.length === 0)}
-          className="shrink-0 h-10 px-4 rounded-lg bg-lily-600 text-white font-medium hover:bg-lily-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+          className="shrink-0 h-10 px-4 rounded-lg bg-brand-600 text-white font-medium hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
         >
           发送
         </button>

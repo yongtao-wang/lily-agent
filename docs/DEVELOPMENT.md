@@ -35,13 +35,13 @@ The 13 ACs from spec §13, mapped to test recipes. Run the dev server before any
 | 1 | Page loads at localhost:3000 | `curl -sf http://localhost:3000/ \| head -c 200` returns HTML |
 | 2 | DEMO MODE banner shows 东永盛 / 王总 | `curl -s http://localhost:3000/ \| grep -oE 'DEMO MODE\|东永盛\|王总'` |
 | 3 | Opening message + 6 stage buttons + 跳过 | `curl -s http://localhost:3000/ \| grep -oE '资料收集\|首页设计\|跳过'` |
-| 4 | Stage button → Lily acks with stage talking points | Open browser, click `首页设计`, verify response references 图片素材 + 本周 |
-| 5 | QA-style question → standard-flavored answer | Type "我想看你们给别人做的详情页参考"; verify Lily redirects to placeholder or offers alternatives |
+| 4 | Stage button → 小鹏 acks with stage talking points | Open browser, click `首页设计`, verify response references 图片素材 + 本周 |
+| 5 | QA-style question → standard-flavored answer | Type "我想看你们给别人做的详情页参考"; verify 小鹏 redirects to placeholder or offers alternatives |
 | 6 | Upload jpg + pdf lands on disk | See §3 upload test below |
 | 7 | Reject >20MB and non-allowlist mime | See §3 upload test below |
 | 8 | 3-round dissatisfaction → tool call + handoff | See §4 escalation test below |
 | 9 | Log block written with all fields | `cat logs/escalations.log` after AC #8 |
-| 10 | Post-escalation: Lily passive, no re-call | After AC #8, send another message; verify no second log entry, response stays in collect/forward mode |
+| 10 | Post-escalation: 小鹏 passive, no re-call | After AC #8, send another message; verify no second log entry, response stays in collect/forward mode |
 | 11 | "我想找人聊" → immediate escalation | See §4 explicit-request test below |
 | 12 | Model swap via config | Edit `lib/config.ts` model field, restart, send a message |
 | 13 | Refresh resets session | Hard-refresh browser; verify new session opens fresh |
@@ -224,7 +224,7 @@ If you broaden the mime allowlist, also update the `ALLOWED_MIME` constant in `c
 
 ```ts
 escalation: {
-  logPath: '/var/log/lily/escalations.log',
+  logPath: '/var/log/xiaopeng/escalations.log',
   handoffMessage: '...',
 },
 ```
@@ -239,7 +239,7 @@ escalation: {
 }
 ```
 
-Note: Lily paraphrases this in her voice; she doesn't quote it verbatim.
+Note: 小鹏 paraphrases this in her voice; she doesn't quote it verbatim.
 
 ---
 
@@ -265,7 +265,7 @@ Edit `lib/prompt.ts`. Add a numbered item to the `【行为约束】` block. Kee
 
 ### Tighten or relax post-escalation behavior
 
-Edit the `escalatedBlock` in `lib/prompt.ts`. Current text says "你只做：共情回应、信息收集、补充提问". If you want Lily to e.g. still answer simple factual questions, soften the language. Test with the AC #10 recipe.
+Edit the `escalatedBlock` in `lib/prompt.ts`. Current text says "你只做：共情回应、信息收集、补充提问". If you want 小鹏 to e.g. still answer simple factual questions, soften the language. Test with the AC #10 recipe.
 
 ---
 

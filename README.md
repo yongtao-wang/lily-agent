@@ -1,4 +1,4 @@
-# Lily AI 客服 Web Demo — MVP
+# 小鹏 AI 客服 Web Demo — MVP
 
 单页面对话式 AI 客服，定位为出海营销服务公司的售后项目交付陪伴助手。
 

@@ -18,7 +18,7 @@ export default function StageSelector({
             key={s.id}
             disabled={disabled}
             onClick={() => onSelect(s.id, s.label)}
-            className="px-3 py-1.5 text-sm rounded-full bg-white border border-lily-500 text-lily-700 hover:bg-lily-50 transition disabled:opacity-50"
+            className="px-3 py-1.5 text-sm rounded-full bg-white border border-brand-500 text-brand-700 hover:bg-brand-50 transition disabled:opacity-50"
           >
             {s.label}
           </button>

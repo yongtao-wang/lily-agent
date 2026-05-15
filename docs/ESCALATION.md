@@ -1,6 +1,6 @@
 # Escalation
 
-**TL;DR.** When Lily decides she can't handle an issue, she calls a `notify_project_manager` tool. The server runs `notifyProjectManager()` in `lib/escalation.ts`, which appends a structured block to `./logs/escalations.log`. The session is flagged `escalated=true` so subsequent system prompts include a "you're already escalated, stop trying to solve" directive. This is the V1 path; V2 swaps the log write for a real webhook (WeChat Work / Slack / email). All upstream pieces (tool schema, prompt rule, session flag) stay the same across that swap.
+**TL;DR.** When 小鹏 decides she can't handle an issue, she calls a `notify_project_manager` tool. The server runs `notifyProjectManager()` in `lib/escalation.ts`, which appends a structured block to `./logs/escalations.log`. The session is flagged `escalated=true` so subsequent system prompts include a "you're already escalated, stop trying to solve" directive. This is the V1 path; V2 swaps the log write for a real webhook (WeChat Work / Slack / email). All upstream pieces (tool schema, prompt rule, session flag) stay the same across that swap.
 
 ---
 
@@ -42,7 +42,7 @@ export const escalationTool = {
 Three constraints baked in:
 
 - **`reason` is an enum, not free text.** The five values are stable for downstream filtering / routing. If you add a value, also update `docs/PROMPT_DESIGN.md` §6 and rule #4 wording in `lib/prompt.ts`.
-- **`summary` is required.** Lily must write a paragraph explaining context. Without it the log is useless.
+- **`summary` is required.** 小鹏 must write a paragraph explaining context. Without it the log is useless.
 - **`urgency` is Claude's judgment.** Three levels; observed in the wild: `medium` for explicit requests, `high` for sustained dissatisfaction.
 
 ---
@@ -65,7 +65,7 @@ Claude       route.ts                escalation.ts            log file
   │   "已通知项目经理，请继续以"已升级、等待 PM"的口径与客户对话。"
   │
   │── text deltas ▶                                              │ ──▶ client SSE
-  │ (handoff message in Lily's voice)                            │
+  │ (handoff message in 小鹏's voice)                            │
   │                                                              │
 ```
 
@@ -137,9 +137,9 @@ This directive is **load-bearing**. Without it, the model often:
 1. Keeps trying to solve the issue → defeats the point of escalation.
 2. Re-fires the tool on every subsequent angry message → pollutes the log.
 
-Verified in AC #10: post-escalation, the customer said "帮我换成蓝色的", Lily recorded the request as info to forward, did not re-call the tool, did not try to execute the change herself.
+Verified in AC #10: post-escalation, the customer said "帮我换成蓝色的", 小鹏 recorded the request as info to forward, did not re-call the tool, did not try to execute the change herself.
 
-The flag has no expiration. Once set, it stays set for the life of the session. Browser refresh starts a fresh session (new `nanoid()`), so the customer gets clean-slate Lily — but on the same logical session id, escalation persists.
+The flag has no expiration. Once set, it stays set for the life of the session. Browser refresh starts a fresh session (new `nanoid()`), so the customer gets clean-slate 小鹏 — but on the same logical session id, escalation persists.
 
 ---
 
@@ -240,7 +240,7 @@ curl -sN -X POST http://localhost:3000/api/chat \
   --max-time 60
 ```
 
-Expected: a `{type:"escalated"}` event in the SSE stream, a new block in `logs/escalations.log` with `Reason: explicit_request`, and a handoff message in Lily's voice.
+Expected: a `{type:"escalated"}` event in the SSE stream, a new block in `logs/escalations.log` with `Reason: explicit_request`, and a handoff message in 小鹏's voice.
 
 ---
 

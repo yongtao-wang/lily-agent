@@ -1,6 +1,6 @@
-# Lily AI 客服 Web Demo — Agent Guide
+# 小鹏 AI 客服 Web Demo — Agent Guide
 
-**TL;DR.** This is a single-page conversational AI customer-service web demo named "Lily", written in Next.js 14 + TypeScript + Anthropic SDK. The customer chats 1:1 with Lily; Lily answers from a knowledge base (persona file + scripts + QA bank); when she can't handle the issue she calls a tool that writes a structured escalation log. The demo is a precursor to a 企业微信 (WeChat Work) integration, so the session / escalation / knowledge layers are designed to be swap-friendly.
+**TL;DR.** This is a single-page conversational AI customer-service web demo named "小鹏", written in Next.js 14 + TypeScript + Anthropic SDK. The customer chats 1:1 with 小鹏; 小鹏 answers from a knowledge base (persona file + scripts + QA bank); when she can't handle the issue she calls a tool that writes a structured escalation log. The demo is a precursor to a 企业微信 (WeChat Work) integration, so the session / escalation / knowledge layers are designed to be swap-friendly.
 
 Read this file first. Cross-references at the bottom point into `docs/` for deep dives.
 
@@ -8,9 +8,9 @@ Read this file first. Cross-references at the bottom point into `docs/` for deep
 
 ## 1. What this project does
 
-The project simulates the "after-sales project delivery accompaniment" role currently performed by human project managers (PMs) at an overseas B2B marketing services company. The PM walks the customer through six delivery stages (资料收集 → 首页设计 → SEO与结构 → 页面制作 → 测试修改 → 上线交付) using a standard playbook. Lily is the AI version of that first-line assistant.
+The project simulates the "after-sales project delivery accompaniment" role currently performed by human project managers (PMs) at an overseas B2B marketing services company. The PM walks the customer through six delivery stages (资料收集 → 首页设计 → SEO与结构 → 页面制作 → 测试修改 → 上线交付) using a standard playbook. 小鹏 is the AI version of that first-line assistant.
 
-What Lily does:
+What 小鹏 does:
 
 - Greets the customer and asks (or accepts) the current project stage.
 - Answers stage-specific questions using the existing playbook (`knowledge/客服阶段话术库.xlsx`) and persona file (`knowledge/csr.md`).
@@ -18,13 +18,13 @@ What Lily does:
 - Detects when she should not handle the issue herself (dissatisfaction, commercial questions, explicit "find me a human", out-of-scope, 3+ rounds unresolved) and calls a `notify_project_manager` tool.
 - After the tool fires, continues chatting in a passive collect-and-empathize mode until the (simulated) PM takes over.
 
-What Lily does NOT do (intentional — see `lily-mvp-ticket.md` §3):
+What 小鹏 does NOT do (intentional — see `lily-mvp-ticket.md` §3):
 
 - No auth, no multi-account, no registration.
 - No persistence across browser refresh. Each page load starts a fresh session.
 - No PM admin UI. The escalation hand-off is a log file.
 - No real notifications (email / WeChat Work / Lark) — that's the V2 swap point.
-- No group chat, no `@Lily` mentions.
+- No group chat, no `@小鹏` mentions.
 - No image OCR or vision; files are stored, not parsed.
 
 ---
@@ -78,7 +78,7 @@ lily-agent/
 │   ├── escalation.ts             tool definition + notifyProjectManager()
 │   └── session.ts                in-memory Map<sessionId, Session>
 ├── knowledge/
-│   ├── csr.md                    Lily's persona archive
+│   ├── csr.md                    小鹏's persona archive
 │   └── 客服阶段话术库.xlsx       scripts + QA library
 ├── docs/                         agent-readable deep dives (see §6)
 ├── logs/escalations.log          runtime, structured PM-notification log

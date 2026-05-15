@@ -1,6 +1,6 @@
 # Knowledge Base
 
-**TL;DR.** Two files in `knowledge/`. `csr.md` is Lily's persona, loaded verbatim. `客服阶段话术库.xlsx` has three sheets; only two are used (`话术库表` and `问答表`). The two used sheets format the project stage differently (`1-资料收集` vs bare `首页设计`) — handled by `STAGE_ALIASES` in `lib/knowledge.ts`. Knowledge is read once per server process and cached in module scope, so edits require a restart.
+**TL;DR.** Two files in `knowledge/`. `csr.md` is 小鹏's persona, loaded verbatim. `客服阶段话术库.xlsx` has three sheets; only two are used (`话术库表` and `问答表`). The two used sheets format the project stage differently (`1-资料收集` vs bare `首页设计`) — handled by `STAGE_ALIASES` in `lib/knowledge.ts`. Knowledge is read once per server process and cached in module scope, so edits require a restart.
 
 ---
 
@@ -31,7 +31,7 @@ Sections in the current file (don't quote them in code — they may change):
 - 人格设定 — keywords, tone, sample sentences (positive and anti-examples)
 - 专业能力设定 — SEO / GEO / 出海增长 / AI 时代 knowledge tags
 - 角色背景故事 — backstory
-- 能力边界 — what Lily won't do
+- 能力边界 — what 小鹏 won't do
 - 标准开场白 — opening lines (for reference; we don't use them directly — the React client has its own opening)
 - 典型回复风格 — sample Q&A pairs
 

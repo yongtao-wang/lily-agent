@@ -43,7 +43,7 @@ export default function ChatWindow({
     {
       id: uid(),
       role: 'assistant',
-      content: `您好，我是 Lily，您在 **${customerCompany}** 项目的 AI 增长助手。\n\n我可以基于您当前的项目阶段，为您解答交付过程中的常见问题。请问您目前在哪个阶段？您可以选择下方按钮，或直接告诉我。`,
+      content: `您好，我是 小鹏，您在 **${customerCompany}** 项目的 AI 增长助手。\n\n我可以基于您当前的项目阶段，为您解答交付过程中的常见问题。请问您目前在哪个阶段？您可以选择下方按钮，或直接告诉我。`,
     },
   ]);
   const [hasChosenStage, setHasChosenStage] = useState(false);
