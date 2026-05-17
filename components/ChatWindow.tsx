@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import MessageBubble from './MessageBubble';
 import ComposerBar from './ComposerBar';
 import StageSelector from './StageSelector';
+import FilesDrawer from './FilesDrawer';
 
 export interface AttachmentRef {
   filename: string;
@@ -63,11 +64,29 @@ export default function ChatWindow({
   const [stageId, setStageId] = useState<string | undefined>(undefined);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
+  const [filesDrawerOpen, setFilesDrawerOpen] = useState(false);
+  const [filesVersion, setFilesVersion] = useState(0);
+  const [filesCount, setFilesCount] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages]);
+
+  const refreshFilesCount = useCallback(async () => {
+    try {
+      const res = await fetch('/api/files', { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = (await res.json()) as { files: unknown[] };
+      setFilesCount(Array.isArray(data.files) ? data.files.length : 0);
+    } catch {
+      // ignore — count is best-effort
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshFilesCount();
+  }, [refreshFilesCount, filesVersion]);
 
   const callChat = async (
     userContent: string,
@@ -183,6 +202,7 @@ export default function ChatWindow({
           return;
         }
         attachments = data.files as AttachmentRef[];
+        setFilesVersion((v) => v + 1);
       } catch (err) {
         setMessages((prev) => [
           ...prev,
@@ -205,6 +225,16 @@ export default function ChatWindow({
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
+      <div className="border-b border-gray-200 bg-white/60 px-3 sm:px-6 py-2 flex items-center justify-end">
+        <button
+          type="button"
+          onClick={() => setFilesDrawerOpen(true)}
+          className="text-sm text-gray-700 hover:text-brand-600 inline-flex items-center gap-1.5"
+        >
+          <span>📁</span>
+          <span>我的文件{filesCount !== null ? ` (${filesCount})` : ''}</span>
+        </button>
+      </div>
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 sm:px-6 py-4">
         <div className="max-w-3xl mx-auto">
           {messages.map((m, idx) => (
@@ -233,6 +263,13 @@ export default function ChatWindow({
           maxSizeMB={MAX_SIZE_MB}
         />
       </div>
+      <FilesDrawer
+        open={filesDrawerOpen}
+        onClose={() => setFilesDrawerOpen(false)}
+        sessionId={sessionId}
+        version={filesVersion}
+        onChanged={() => setFilesVersion((v) => v + 1)}
+      />
     </div>
   );
 }

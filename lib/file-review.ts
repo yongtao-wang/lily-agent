@@ -52,14 +52,14 @@ interface InventoryItem {
   extractedText?: string;
 }
 
-interface ExtractResult {
+export interface ExtractResult {
   text?: string;
   note?: string;
 }
 
-const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif']);
-const TEXT_EXTENSIONS = new Set(['txt', 'md', 'csv']);
-const SPREADSHEET_EXTENSIONS = new Set(['xlsx', 'xls']);
+export const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif']);
+export const TEXT_EXTENSIONS = new Set(['txt', 'md', 'csv']);
+export const SPREADSHEET_EXTENSIONS = new Set(['xlsx', 'xls']);
 
 function truncate(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
@@ -139,7 +139,7 @@ function readWebpSize(header: Buffer): { width?: number; height?: number; note?:
   return { note: 'image size unavailable: unsupported WebP variant' };
 }
 
-function detectImageSize(absPath: string): { width?: number; height?: number; note?: string } {
+export function detectImageSize(absPath: string): { width?: number; height?: number; note?: string } {
   try {
     const header = fs.readFileSync(absPath).subarray(0, 64);
     if (header.subarray(0, 8).equals(Buffer.from('\x89PNG\r\n\x1a\n', 'binary'))) {
@@ -205,7 +205,7 @@ async function readPdf(absPath: string): Promise<ExtractResult> {
   }
 }
 
-async function extractFile(absPath: string, mimeType: string): Promise<ExtractResult> {
+export async function extractFile(absPath: string, mimeType: string): Promise<ExtractResult> {
   const ext = getExtension(absPath);
   try {
     if (SPREADSHEET_EXTENSIONS.has(ext)) return readSpreadsheet(absPath);

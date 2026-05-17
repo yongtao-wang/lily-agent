@@ -59,6 +59,16 @@ export function appendFiles(id: string, files: FileRef[]): void {
   s.files.push(...files);
 }
 
+export function removeFiles(id: string, diskFilenames: string[]): void {
+  const s = sessions.get(id);
+  if (!s) return;
+  const targets = new Set(diskFilenames);
+  s.files = s.files.filter((f) => {
+    const base = f.path.split('/').pop() ?? f.path;
+    return !targets.has(base);
+  });
+}
+
 export function markEscalated(id: string): void {
   const s = getOrCreateSession(id);
   s.escalated = true;

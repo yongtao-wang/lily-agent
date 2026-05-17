@@ -12,6 +12,7 @@ import {
   supportedUploadLabel,
 } from '@/lib/customer-files';
 import { appendFiles, type FileRef } from '@/lib/session';
+import { computeFileMeta, writeSidecar } from '@/lib/file-meta';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -63,6 +64,9 @@ export async function POST(req: NextRequest) {
     const absPath = path.join(baseDir, filename);
     const buf = Buffer.from(await entry.arrayBuffer());
     fs.writeFileSync(absPath, buf);
+
+    const meta = await computeFileMeta(absPath, entry.name, ts);
+    writeSidecar(absPath, meta);
 
     saved.push({
       filename: entry.name,
