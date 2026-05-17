@@ -32,7 +32,7 @@ What 小鹏 does NOT do (intentional — see `lily-mvp-ticket.md` §3):
 
 ## 2. Status
 
-The original 13-AC MVP is feature-complete and verified; three escalations sit in `logs/escalations.log` from manual end-to-end testing. The customer-file-review feature was added on top (uncommitted at time of writing) and has been smoke-tested end-to-end against `uploads/customers/东永盛/`.
+The original 13-AC MVP is feature-complete and verified; three escalations sit in `logs/escalations.log` from manual end-to-end testing. The customer-file-review feature was added on top and has been smoke-tested end-to-end against `uploads/customers/东永盛/`. A file management drawer ("我上传的文件") was added on top of that, exposing the per-company upload folder in the chat UI with per-file extraction status badges and single + bulk delete; see §5 convention #10 for the sidecar invariant it relies on.
 
 Stack: Next.js 14.2.15 (App Router), React 18, TypeScript 5, Tailwind 3, `@anthropic-ai/sdk@0.32.1`, `xlsx@0.18.5` (knowledge load + spreadsheet extraction), `pdf-parse@2.4.5` (PDF text extraction), `react-markdown@9`, `nanoid@5`.
 
@@ -61,15 +61,17 @@ lily-agent/
 ├── app/
 │   ├── api/
 │   │   ├── chat/route.ts         POST chat endpoint (SSE streaming + tool loop)
-│   │   └── upload/route.ts       POST upload endpoint (mime + size validation)
+│   │   ├── upload/route.ts       POST upload endpoint (mime + size validation, writes sidecar)
+│   │   └── files/route.ts        GET list + DELETE remove for the files drawer
 │   ├── layout.tsx                html shell, Chinese lang
 │   ├── page.tsx                  server component, generates sessionId via nanoid
 │   └── globals.css               tailwind directives + chat-bubble utilities
 ├── components/                   all client components
-│   ├── ChatWindow.tsx            orchestrator, holds local message mirror
+│   ├── ChatWindow.tsx            orchestrator, holds local message mirror + drawer state
 │   ├── MessageBubble.tsx         role-based styling, markdown render, attachments
 │   ├── ComposerBar.tsx           textarea + file picker + send
 │   ├── StageSelector.tsx         6 stage buttons + skip, first turn only
+│   ├── FilesDrawer.tsx           right-side drawer: list/badge/delete uploads on disk
 │   └── DemoBanner.tsx            top yellow "DEMO MODE" bar
 ├── lib/                          server-side modules
 │   ├── config.ts                 single source of truth for tunables
@@ -78,7 +80,8 @@ lily-agent/
 │   ├── claude.ts                 Anthropic SDK wrapper, streaming + tool loop
 │   ├── escalation.ts             notify_project_manager tool + log writer
 │   ├── customer-files.ts         per-company upload paths, mime/ext helpers
-│   ├── file-review.ts            review_customer_files tool + context builder
+│   ├── file-review.ts            review_customer_files tool + context builder; exports extractFile
+│   ├── file-meta.ts              sidecar read/write/compute (shared by upload + files routes)
 │   └── session.ts                in-memory Map<sessionId, Session>
 ├── knowledge/
 │   ├── csr.md                    小鹏's persona archive
@@ -89,7 +92,7 @@ lily-agent/
 ├── skills/customer-file-standards/   Codex skill manifest pointing at the corpus
 ├── docs/                         agent-readable deep dives (see §6)
 ├── logs/escalations.log          runtime, structured PM-notification log
-├── uploads/customers/<company>/  runtime, customer-uploaded files (per company)
+├── uploads/customers/<company>/  runtime, customer-uploaded files + <file>.meta.json sidecars
 └── .env.local                    runtime, ANTHROPIC_API_KEY
 ```
 
@@ -118,6 +121,11 @@ Read these before touching code. They prevent the most common mistakes:
 8. **No emojis in code or docs unless explicitly asked.** The persona's anti-examples (亲～哦 etc.) are the only emoji-adjacent content allowed. UI banner uses 🧪 only because the spec section 12 shows it.
 
 9. **Comment-light code by design.** Yongtao's preference is "default to no comments" — only add a comment when the *why* is non-obvious. Don't add JSDoc blocks; this docs/ tree is the source of truth.
+
+10. **Every uploaded file has a sidecar — keep them in lockstep.** For each file `F` in `uploads/customers/<company>/`, there must be a matching `F.meta.json` recording extraction status (`originalName`, `mimeType`, `sizeBytes`, `uploadedAt`, `status` ∈ `ok|image|empty|failed|unsupported`, `note`, `imageWidth`, `imageHeight`). The drawer's status badge comes straight from this sidecar — no per-request re-extraction. Three contracts to preserve when modifying upload, files, or extraction code:
+    - `app/api/upload/route.ts` writes the sidecar **before** returning, via `computeFileMeta` + `writeSidecar` in `lib/file-meta.ts`.
+    - `app/api/files/route.ts` GET synthesizes a sidecar on the fly for any file missing one (handles legacy / out-of-band drops); DELETE unlinks the file **and** its sidecar together.
+    - `computeFileMeta` calls `extractFile` from `lib/file-review.ts` — the same function the review tool uses. If you add or change a status, update both the `FileStatus` union in `lib/file-meta.ts` **and** the `STATUS_BADGE` map + tooltip rendering in `components/FilesDrawer.tsx`. If you add a new extractor, route it through `extractFile` so the badge and the review report agree.
 
 ---
 
