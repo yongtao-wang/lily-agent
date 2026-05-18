@@ -29,7 +29,7 @@ open http://localhost:3000
 
 ## 文件上传
 
-支持 `jpg / jpeg / png / webp / pdf / xlsx / xls / csv / txt / md`，单文件 ≤ 20 MB。所有上传按客户公司归档到 `./uploads/customers/<公司名>/`。
+支持 `jpg / jpeg / png / webp / pdf / xlsx / xls / doc / docx / csv / txt / md`，单文件 ≤ 20 MB。所有上传按客户公司归档到 `./uploads/customers/<公司名>/`。
 
 ## 升级日志
 

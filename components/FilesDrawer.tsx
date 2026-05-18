@@ -44,6 +44,12 @@ function typeIcon(mimeType: string, status: FileStatus): string {
   if (status === 'image' || mimeType.startsWith('image/')) return '🖼️';
   if (mimeType === 'application/pdf') return '📕';
   if (mimeType.includes('spreadsheet') || mimeType.includes('excel')) return '📊';
+  if (
+    mimeType === 'application/msword' ||
+    mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  ) {
+    return '📘';
+  }
   if (mimeType.startsWith('text/')) return '📝';
   return '📄';
 }
@@ -264,7 +270,7 @@ export default function FilesDrawer({
             <div className="p-6 text-center text-sm text-gray-500">
               还没有上传文件。
               <br />
-              在下方对话框中可以附加 PDF / xlsx / 图片等资料。
+              在下方对话框中可以附加 PDF / Word / xlsx / 图片等资料。
             </div>
           ) : (
             <ul className="divide-y divide-gray-100">

@@ -14,7 +14,7 @@ What 小鹏 does:
 
 - Greets the customer and asks (or accepts) the current project stage.
 - Answers stage-specific questions using the existing playbook (`knowledge/客服阶段话术库.xlsx`) and persona file (`knowledge/csr.md`).
-- Accepts file uploads (images, PDF, xlsx/xls, csv, txt, md) and acknowledges receipt; files land in `uploads/customers/<company>/` for future hand-off.
+- Accepts file uploads (images, PDF, Word doc/docx, xlsx/xls, csv, txt, md) and acknowledges receipt; files land in `uploads/customers/<company>/` for future hand-off.
 - Detects when she should not handle the issue herself (dissatisfaction, commercial questions, explicit "find me a human", out-of-scope, 3+ rounds unresolved) and calls a `notify_project_manager` tool.
 - After the tool fires, continues chatting in a passive collect-and-empathize mode until the (simulated) PM takes over.
 - When the customer explicitly asks to **check / audit / review** the uploaded materials, calls a `review_customer_files` tool. The handler builds a file inventory, extracts readable content (xlsx via SheetJS, pdf via `pdf-parse`, txt/md/csv as text, image dimensions only), bundles it with the relevant slice of the standards corpus under `standards/customer-file-review/`, and feeds the whole thing back as a tool_result. 小鹏 then writes a bilingual report citing exact file paths as evidence.

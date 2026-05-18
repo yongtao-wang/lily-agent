@@ -109,12 +109,14 @@ Editing a reference file or the fixed trio takes effect on the next tool call �
 
 ## 4. Content extractors
 
-Defined in `lib/file-review.ts`. Each extension is routed to one of four extractors.
+Defined in `lib/file-review.ts`. Each extension is routed to one of six extractors.
 
 | Extension | Extractor | Library | Notes |
 |---|---|---|---|
 | `txt`, `md`, `csv`, `text/*` | `readTextFile` | `fs.readFileSync(..., 'utf8')` | Raw bytes; long files are truncated to `maxExtractCharsPerFile` by the caller. |
 | `xlsx`, `xls` | `readSpreadsheet` | `xlsx` (SheetJS) | Iterates up to 8 sheets, 80 rows each, joined with ` | `. Blank rows skipped. |
+| `docx` | `readDocx` | `mammoth` (dynamic `import`) | Extracts plain text via `extractRawText`. Empty body returns `Note: Word document text extraction returned no text`. |
+| `doc` | `readDoc` | `word-extractor` (dynamic `import`) | Parses the Word 97–2003 binary OLE format; pure JS, no native deps. Same empty-text note as `docx`. |
 | `pdf` | `readPdf` | `pdf-parse@2.4.5` (loaded via dynamic `import`) | Best-effort; scanned / encrypted PDFs may return empty text, in which case the inventory `Note` says so and the model falls back to `需确认`. |
 | `jpg / jpeg`, `png`, `webp`, `gif` | `detectImageSize` | hand-rolled header parsers | Reads first 64 bytes (or more for JPEG) to extract width × height. **No OCR, no pixel inspection**, by design. Failures produce `Note: image size unavailable: …`. |
 | anything else | falls through | — | `Note: unsupported file content parser; mark content-dependent checks as 需确认`. |

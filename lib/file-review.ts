@@ -60,6 +60,7 @@ export interface ExtractResult {
 export const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif']);
 export const TEXT_EXTENSIONS = new Set(['txt', 'md', 'csv']);
 export const SPREADSHEET_EXTENSIONS = new Set(['xlsx', 'xls']);
+export const WORD_EXTENSIONS = new Set(['docx', 'doc']);
 
 function truncate(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
@@ -191,6 +192,26 @@ function readSpreadsheet(absPath: string): ExtractResult {
   };
 }
 
+async function readDocx(absPath: string): Promise<ExtractResult> {
+  const mammoth = await import('mammoth');
+  const { value } = await mammoth.extractRawText({ path: absPath });
+  return {
+    text: value,
+    note: value.trim() ? undefined : 'Word document text extraction returned no text',
+  };
+}
+
+async function readDoc(absPath: string): Promise<ExtractResult> {
+  const WordExtractor = (await import('word-extractor')).default;
+  const extractor = new WordExtractor();
+  const doc = await extractor.extract(absPath);
+  const text = doc.getBody();
+  return {
+    text,
+    note: text.trim() ? undefined : 'Word document text extraction returned no text',
+  };
+}
+
 async function readPdf(absPath: string): Promise<ExtractResult> {
   const { PDFParse } = await import('pdf-parse');
   const parser = new PDFParse({ data: new Uint8Array(fs.readFileSync(absPath)) });
@@ -210,6 +231,10 @@ export async function extractFile(absPath: string, mimeType: string): Promise<Ex
   try {
     if (SPREADSHEET_EXTENSIONS.has(ext)) return readSpreadsheet(absPath);
     if (TEXT_EXTENSIONS.has(ext) || mimeType.startsWith('text/')) return readTextFile(absPath);
+    if (ext === 'docx' || mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      return await readDocx(absPath);
+    }
+    if (ext === 'doc' || mimeType === 'application/msword') return await readDoc(absPath);
     if (ext === 'pdf' || mimeType === 'application/pdf') return await readPdf(absPath);
     if (IMAGE_EXTENSIONS.has(ext) || mimeType.startsWith('image/')) {
       return { note: 'image content not OCR parsed; dimensions are listed in inventory' };

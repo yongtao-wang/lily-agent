@@ -101,7 +101,7 @@ curl -sS -X POST http://localhost:3000/api/upload \
   -F "files=@/tmp/bad.zip;type=application/zip"
 ```
 
-Expected: HTTP 415, body `{"error":"不支持的文件类型：bad.zip (application/zip)。仅支持 jpg / jpeg / png / webp / pdf / xlsx / xls / csv / txt / md"}`. The current allowlist (mime + extension) is in `config.upload`; client-side mirror lives in `components/ChatWindow.tsx`.
+Expected: HTTP 415, body `{"error":"不支持的文件类型：bad.zip (application/zip)。仅支持 jpg / jpeg / png / webp / pdf / xlsx / xls / doc / docx / csv / txt / md"}`. The current allowlist (mime + extension) is in `config.upload`; client-side mirror lives in `components/ChatWindow.tsx`.
 
 ---
 
@@ -267,9 +267,11 @@ upload: {
     'image/jpeg', 'image/png', 'image/webp', 'application/pdf',
     'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'text/csv', 'text/plain', 'text/markdown',
   ],
-  allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'pdf', 'xlsx', 'xls', 'csv', 'txt', 'md'],
+  allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'pdf', 'xlsx', 'xls', 'doc', 'docx', 'csv', 'txt', 'md'],
   maxSizeMB: 50,                    // was 20
   uploadDir: './uploads',
   companyRootDir: './uploads/customers',

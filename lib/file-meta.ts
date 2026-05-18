@@ -40,7 +40,8 @@ function classify(
     if (note.startsWith('unsupported file content parser')) return { status: 'unsupported', note };
     if (
       note.startsWith('spreadsheet has no readable cells') ||
-      note.startsWith('PDF text extraction returned no text')
+      note.startsWith('PDF text extraction returned no text') ||
+      note.startsWith('Word document text extraction returned no text')
     ) {
       return { status: 'empty', note };
     }
