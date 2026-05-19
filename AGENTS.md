@@ -14,7 +14,7 @@ What 小鹏 does:
 
 - Greets the customer and asks (or accepts) the current project stage.
 - Answers stage-specific questions using the existing playbook (`knowledge/客服阶段话术库.xlsx`) and persona file (`knowledge/csr.md`).
-- Accepts file uploads (images, PDF, Word doc/docx, xlsx/xls, csv, txt, md) and acknowledges receipt; files land in `uploads/customers/<company>/` for future hand-off.
+- Accepts file uploads (images, PDF, Word doc/docx, xlsx/xls, csv, txt, md) and acknowledges receipt; files land under the storage key prefix `customers/<id>/` (on disk: `uploads/customers/<id>/` when using the `local-fs` backend; same prefix in Vercel Blob when `BLOB_READ_WRITE_TOKEN` is set).
 - Detects when she should not handle the issue herself (dissatisfaction, commercial questions, explicit "find me a human", out-of-scope, 3+ rounds unresolved) and calls a `notify_project_manager` tool.
 - After the tool fires, continues chatting in a passive collect-and-empathize mode until the (simulated) PM takes over.
 - When the customer explicitly asks to **check / audit / review** the uploaded materials, calls a `review_customer_files` tool. The handler builds a file inventory, extracts readable content (xlsx via SheetJS, pdf via `pdf-parse`, txt/md/csv as text, image dimensions only), bundles it with the relevant slice of the standards corpus under `standards/customer-file-review/`, and feeds the whole thing back as a tool_result. 小鹏 then writes a bilingual report citing exact file paths as evidence.
@@ -46,7 +46,7 @@ In the docs below, `<id>` / `<displayName>` / `<contact>` are placeholders that 
 
 ## 2. Status
 
-The original 13-AC MVP is feature-complete and verified; three escalations sit in `logs/escalations.log` from manual end-to-end testing. The customer-file-review feature was added on top and has been smoke-tested end-to-end against `uploads/customers/<id>/`. A file management drawer ("我上传的文件") was added on top of that, exposing the per-company upload folder in the chat UI with per-file extraction status badges and single + bulk delete; see §5 convention #10 for the sidecar invariant it relies on.
+The original 13-AC MVP is feature-complete and verified; three escalations sit in `logs/escalations.log` from manual end-to-end testing. The customer-file-review feature was added on top and has been smoke-tested end-to-end against the `customers/<id>/` storage prefix. A file management drawer ("我上传的文件") was added on top of that, listing the same prefix via `/api/files` with per-file extraction status badges and single + bulk delete; see §5 convention #10 for the sidecar invariant it relies on. Uploads use a pluggable `ObjectStore` / `MetaStore` (`local-fs` or Vercel Blob); see `docs/ARCHITECTURE.md` for backend selection.
 
 Stack: Next.js 14.2.15 (App Router), React 18, TypeScript 5, Tailwind 3, `@anthropic-ai/sdk@0.32.1`, `xlsx@0.18.5` (knowledge load + spreadsheet extraction), `pdf-parse@2.4.5` (PDF text extraction), `react-markdown@9`, `nanoid@5`.
 
@@ -93,9 +93,11 @@ lily-agent/
 │   ├── prompt.ts                 assembles system prompt per request
 │   ├── claude.ts                 Anthropic SDK wrapper, streaming + tool loop
 │   ├── escalation.ts             notify_project_manager tool + log writer
-│   ├── customer-files.ts         per-company upload paths, mime/ext helpers
+│   ├── customer-files.ts         customer id/displayName, storage key prefix, mime/ext helpers
 │   ├── file-review.ts            review_customer_files tool + context builder; exports extractFile
 │   ├── file-meta.ts              sidecar read/write/compute (shared by upload + files routes)
+│   ├── log.ts                    structured JSON logging for upload/files/review I/O
+│   ├── storage/                  ObjectStore + MetaStore (local-fs, vercel-blob)
 │   └── session.ts                in-memory Map<sessionId, Session>
 ├── knowledge/
 │   ├── csr.md                    小鹏's persona archive
@@ -106,7 +108,7 @@ lily-agent/
 ├── skills/customer-file-standards/   Codex skill manifest pointing at the corpus
 ├── docs/                         agent-readable deep dives (see §6)
 ├── logs/escalations.log          runtime, structured PM-notification log
-├── uploads/customers/<company>/  runtime, customer-uploaded files + <file>.meta.json sidecars
+├── uploads/                      runtime (local-fs backend only): customer files at uploads/customers/<id>/ + sidecars
 └── .env.local                    runtime, ANTHROPIC_API_KEY
 ```
 
@@ -128,7 +130,7 @@ Read these before touching code. They prevent the most common mistakes:
 
 5. **The persona + KB are cached at module scope in `loadKnowledge()`.** Edits to `knowledge/csr.md` or the xlsx require a `npm run dev` restart to pick up.
 
-6. **SDK pinned to `@anthropic-ai/sdk@0.32.1`.** This is older than current and predates native PDF document blocks. Non-image uploads are passed to Claude as text markers like `[客户上传文件: foo.pdf（application/pdf, 240 KB，公司资料文件夹：uploads/customers/<id>）— 文件已落盘。…]` (see `attachmentsToBlocks` in `lib/claude.ts`). Images still go through as native `image` blocks. When the model needs the actual content of a non-image file, it calls `review_customer_files`, which extracts on demand. If you bump the SDK, see `docs/ARCHITECTURE.md` for where to enable document blocks.
+6. **SDK pinned to `@anthropic-ai/sdk@0.32.1`.** This is older than current and predates native PDF document blocks. Non-image uploads are passed to Claude as text markers like `[客户上传文件: foo.pdf（application/pdf, 240 KB，公司资料文件夹：customers/<id>）— 文件已落盘。…]` (see `attachmentsToBlocks` in `lib/claude.ts`; `companyPath` is the storage key prefix). Images are fetched from `ObjectStore` and sent as native `image` blocks. When the model needs the actual content of a non-image file, it calls `review_customer_files`, which extracts on demand. If you bump the SDK, see `docs/ARCHITECTURE.md` for where to enable document blocks.
 
 7. **The escalated session flag is one-way for the demo.** Once `session.escalated = true`, there is no "un-escalate". The post-escalation directive will be appended to every subsequent system prompt until session reset (browser refresh).
 
@@ -136,7 +138,7 @@ Read these before touching code. They prevent the most common mistakes:
 
 9. **Comment-light code by design.** Yongtao's preference is "default to no comments" — only add a comment when the *why* is non-obvious. Don't add JSDoc blocks; this docs/ tree is the source of truth.
 
-10. **Every uploaded file has a sidecar — keep them in lockstep.** For each file `F` in `uploads/customers/<company>/`, there must be a matching `F.meta.json` recording extraction status (`originalName`, `mimeType`, `sizeBytes`, `uploadedAt`, `status` ∈ `ok|image|empty|failed|unsupported`, `note`, `imageWidth`, `imageHeight`). The drawer's status badge comes straight from this sidecar — no per-request re-extraction. Three contracts to preserve when modifying upload, files, or extraction code:
+10. **Every uploaded file has a sidecar — keep them in lockstep.** For each object key `customers/<id>/<diskName>`, there must be a matching sidecar at `<key>.meta.json` (via `MetaStore`) recording extraction status (`originalName`, `mimeType`, `sizeBytes`, `uploadedAt`, `status` ∈ `ok|image|empty|failed|unsupported`, `note`, `imageWidth`, `imageHeight`). On `local-fs` that file lives beside the blob under `uploads/`; on Vercel Blob it is a separate private blob. The drawer's status badge comes straight from this sidecar — no per-request re-extraction. Three contracts to preserve when modifying upload, files, or extraction code:
     - `app/api/upload/route.ts` writes the sidecar **before** returning, via `computeFileMeta` + `writeSidecar` in `lib/file-meta.ts`.
     - `app/api/files/route.ts` GET synthesizes a sidecar on the fly for any file missing one (handles legacy / out-of-band drops); DELETE unlinks the file **and** its sidecar together.
     - `computeFileMeta` calls `extractFile` from `lib/file-review.ts` — the same function the review tool uses. If you add or change a status, update both the `FileStatus` union in `lib/file-meta.ts` **and** the `STATUS_BADGE` map + tooltip rendering in `components/FilesDrawer.tsx`. If you add a new extractor, route it through `extractFile` so the badge and the review report agree.

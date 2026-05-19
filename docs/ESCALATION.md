@@ -109,8 +109,8 @@ Field-by-field:
 | Field | Source | Notes |
 |---|---|---|
 | Timestamp | `formatTimestamp(new Date())` in escalation.ts | Local time, second precision |
-| Session | `sessionId` | UUID-ish (`nanoid()` from `page.tsx`) — uploads now live under `uploads/customers/<company>/` (not per-session), so join via `Files:` paths in the log instead |
-| Customer | `config.demoCustomer.company / contact` | Hardcoded; change in `lib/config.ts` |
+| Session | `sessionId` | UUID-ish (`nanoid()` from `page.tsx`) — uploads live under `customers/<id>/` (not per-session), so join via `Files:` paths in the log instead |
+| Customer | `config.demoCustomer.displayName / contact` | Hardcoded; change in `lib/config.ts` (`id` is the storage prefix and must not be renamed after first upload) |
 | Stage | `getStageLabel(stageId)` | "未明确" if `stageId` is undefined |
 | Reason | Tool input `reason` enum | One of the five values from §1 |
 | Urgency | Tool input `urgency` enum | low/medium/high |
@@ -195,7 +195,7 @@ So the swap is one file, ~20 lines of changes. The seam is intentional.
 
 By design:
 
-- **File contents.** Only paths are recorded; the PM clicks into `uploads/customers/<company>/` to view actual files. Avoids inflating the log with base64 blobs.
+- **File contents.** Only storage keys are recorded; the PM resolves them via the configured backend (`uploads/customers/<id>/` on disk, or Vercel Blob in production). Avoids inflating the log with base64 blobs.
 - **The full conversation.** Only the last 6 turns. The full history lives in `session.messages` (in-memory) — if you need it, query the session directly via a future admin endpoint.
 - **Raw tool_use JSON.** It's redundant with the parsed fields. If you need it for debugging, add a `console.log(toolUse.input)` in `route.ts`.
 - **Customer IP / user agent / browser.** No tracking. Demo is anonymous; V2 with auth would add identity to the log naturally.

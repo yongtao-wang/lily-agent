@@ -29,7 +29,7 @@ open http://localhost:3000
 
 ## 文件上传
 
-支持 `jpg / jpeg / png / webp / pdf / xlsx / xls / doc / docx / csv / txt / md`，单文件 ≤ 20 MB。所有上传按客户公司归档到 `./uploads/customers/<公司名>/`。
+支持 `jpg / jpeg / png / webp / pdf / xlsx / xls / doc / docx / csv / txt / md`，单文件 ≤ 20 MB。上传通过可插拔存储层写入 `customers/<id>/` 前缀（本地开发落在 `uploads/customers/<id>/`；生产可配置 Vercel Blob）。客户身份见 `lib/config.ts::demoCustomer`。
 
 ## 升级日志
 

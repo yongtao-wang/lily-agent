@@ -11,10 +11,11 @@ cd /Users/yongtao/Codes/lily-agent
 npm install                    # ~15s, ~240 packages
 cp .env.local.example .env.local
 # edit .env.local: ANTHROPIC_API_KEY=sk-ant-...
+# optional: BLOB_READ_WRITE_TOKEN=...  (switches uploads to Vercel Blob; omit for local-fs)
 npm run dev                    # http://localhost:3000
 ```
 
-If `.env.local` already exists, double-check that the key isn't stale (revoke + rotate keys that were ever pasted in conversation transcripts).
+If `.env.local` already exists, double-check that the key isn't stale (revoke + rotate keys that were ever pasted in conversation transcripts). Without `BLOB_READ_WRITE_TOKEN`, uploads land on disk under `uploads/customers/<id>/` via the `local-fs` backend.
 
 Other npm scripts:
 
@@ -188,7 +189,7 @@ In a browser: open localhost:3000, click a stage, send a message, then hard-refr
 
 ### Materials review (file-review feature)
 
-Smoke test for `review_customer_files`. Make sure `uploads/customers/<id>/` has at least one file (use the upload curl above or drop a file in via the UI).
+Smoke test for `review_customer_files`. Make sure the `customers/<id>/` prefix has at least one file (use the upload curl above or drop a file in via the UI; on `local-fs`, check `uploads/customers/<id>/`).
 
 ```bash
 curl -sN -X POST http://localhost:3000/api/chat \
@@ -197,7 +198,7 @@ curl -sN -X POST http://localhost:3000/api/chat \
   --max-time 90
 ```
 
-Expected: SSE stream containing a bilingual report ("资料检查结果 / Materials Readiness Review") with a `模块 / Module` table that uses only the four allowed statuses (`符合 / 缺失 / 需确认 / 可优化`) and cites file paths like `uploads/customers/<id>/...` as evidence. Ends with `{"type":"done"}`. No `escalated` event.
+Expected: SSE stream containing a bilingual report ("资料检查结果 / Materials Readiness Review") with a `模块 / Module` table that uses only the four allowed statuses (`符合 / 缺失 / 需确认 / 可优化`) and cites storage keys like `customers/<id>/...` as evidence. Ends with `{"type":"done"}`. No `escalated` event.
 
 Negative test — make sure a pure upload turn does **not** trigger the tool:
 
@@ -233,6 +234,9 @@ Expected: report focuses on homepage-related findings; reference Markdown bundle
 | Escalation didn't fire when expected | Add temporary `console.log` in `lib/claude.ts` at the `if (event.type === 'content_block_start')` branch to see if `tool_use` was emitted at all. If yes, check `onToolUse` handler in `app/api/chat/route.ts` |
 | Wrong stage scripts in prompt | Add `console.log(systemPrompt)` in `app/api/chat/route.ts` before `streamChat` to inspect what's being sent |
 | Upload silently fails | Server log will show the multipart parsing error. Common cause: wrong `Content-Type` header — let `curl -F` set it, don't override |
+| File review ENOENT on Vercel (`workflow.md`, etc.) | Standards corpus not in the serverless bundle — confirm `next.config.mjs` `outputFileTracingIncludes` for `/api/chat` and redeploy |
+| Blob read fails on Vercel | Confirm `BLOB_READ_WRITE_TOKEN` in project env; blobs must be `private` and read via SDK (see `lib/storage/vercel-blob.ts`) |
+| Drawer empty but uploads succeeded | Check stderr for JSON `list_failed` / `get_failed` lines from `logFileEvent`; verify prefix matches `customers/<id>/` |
 | Log file not created | First escalation creates `logs/` dir via `fs.mkdirSync(..., { recursive: true })`. If permissions are wrong, the error will surface in dev-server stderr |
 | Page shows but stage buttons don't disappear | `hasChosenStage` state in `ChatWindow.tsx` — verify the click handler runs. Add `console.log` in `handleStageSelect` |
 
@@ -254,8 +258,9 @@ Restart dev server after edit.
 
 ```ts
 demoCustomer: {
-  company: '某某公司',
-  contact: '李总',
+  id: 'acme',                        // permanent storage prefix — do not rename after first upload
+  displayName: '某某公司',            // banner, prompt, reports
+  contact: '李总',                      // escalation log prose
 },
 ```
 
@@ -359,7 +364,8 @@ Edit the `escalatedBlock` in `lib/prompt.ts`. Current text says "你只做：共
 - **No session TTL.** `lib/session.ts` `Map` accumulates orphaned sessions indefinitely. Fine for demo; add LRU eviction before production.
 - **No HMR for knowledge files.** Edit `csr.md` or the xlsx → restart server. The `loadKnowledge()` module cache doesn't watch files. The file-review tool's standards corpus is **not** cached — Markdown edits under `standards/customer-file-review/` take effect on the next tool call without a restart.
 - **`pdf-parse@2.4.5` is best-effort.** Some PDFs (scanned, password-protected, weirdly encoded) return no text. The review tool surfaces this as `Note: PDF text extraction returned no text` in the inventory, and the model is instructed to fall back to `需确认` rather than fabricate. If real customers send PDFs that fail often, evaluate `pdfjs-dist` or an OCR step.
-- **Single-customer demo.** `getCustomerId()` returns `config.demoCustomer.id` — all uploads land under one shared `customers/gss/` storage prefix, and `review_customer_files` reads the same prefix for every session. Multi-customer deployment requires a per-session customer identity and a real `getCustomerId(sessionId)` implementation.
+- **Single-customer demo.** `getCustomerId()` returns `config.demoCustomer.id` — all uploads land under one shared `customers/<id>/` storage prefix, and `review_customer_files` reads the same prefix for every session. Multi-customer deployment requires a per-session customer identity and a real `getCustomerId(sessionId)` implementation.
+- **Standards corpus on Vercel.** Requires `outputFileTracingIncludes` in `next.config.mjs`; see `docs/ARCHITECTURE.md` §6.
 
 ---
 

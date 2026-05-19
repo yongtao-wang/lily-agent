@@ -1,6 +1,6 @@
 # Architecture
 
-**TL;DR.** Next.js 14 App Router. Two API routes (`/api/chat` for SSE streaming, `/api/upload` for files). Eight `lib/` modules with clear single responsibilities. Server holds canonical session state in an in-memory `Map`; the client mirrors it for display. Every chat request rebuilds the system prompt from cached knowledge and a fresh stage/escalation snapshot. Claude has two tools available — `notify_project_manager` (escalation log writer) and `review_customer_files` (on-demand inventory + content extraction + standards bundle).
+**TL;DR.** Next.js 14 App Router. Three API routes (`/api/chat` for SSE streaming, `/api/upload` for files, `/api/files` for the files drawer). Pluggable storage (`local-fs` or Vercel Blob) behind `lib/storage/`. Server holds canonical session state in an in-memory `Map`; the client mirrors it for display. Every chat request rebuilds the system prompt from cached knowledge and a fresh stage/escalation snapshot. Claude has two tools — `notify_project_manager` (escalation log writer) and `review_customer_files` (on-demand inventory + content extraction + standards bundle).
 
 ---
 
@@ -47,12 +47,11 @@
    ▼
 ┌────────────────────────────────────────────────────────────────────┐
 │ lib/file-review.ts :: buildFileReviewContext                       │
-│   listFiles(uploads/customers/<company>/)                          │
-│   for each file: detectImageSize / readSpreadsheet / readPdf /     │
-│                  readTextFile (truncated to maxExtractCharsPerFile)│
-│   readStandards(scope)  ← workflow + status defs + report template │
-│                          + referencesForScope(scope) from          │
-│                          standards/customer-file-review/           │
+│   objectStore.list(customers/<id>/)  (via getCustomerKeyPrefix)    │
+│   for each object: objectStore.get(key) → extractFile (truncated)  │
+│   readStandards(scope)  ← fs.readFileSync on standards corpus      │
+│                          (workflow + status defs + report template │
+│                          + referencesForScope(scope))              │
 │   returns one big text blob → fed back to Claude as tool_result    │
 └────────────────────────────────────────────────────────────────────┘
    │
@@ -63,7 +62,11 @@ back to route.ts:
    send {type:"done"}
 ```
 
-Upload flow is the same shape but simpler: `app/api/upload/route.ts` parses multipart form data, validates each entry against `config.upload.allowedMimeTypes` **or** `config.upload.allowedExtensions` (via `isAllowedUpload()`) and size against `maxSizeMB`, writes files to `./uploads/customers/<company>/{timestamp}-{safeFilename}` (the company comes from `config.demoCustomer.company`, sanitized as a single path segment), and appends the resulting `FileRef[]` to the session. Each `FileRef` carries `company` and `companyPath` so the chat path can mention the folder in the attachment marker and the review tool can find it later.
+**Upload flow.** `app/api/upload/route.ts` parses multipart form data, validates each entry against `config.upload.allowedMimeTypes` **or** `config.upload.allowedExtensions` (via `isAllowedUpload()`) and size against `maxSizeMB`, then writes through `getObjectStore().put()` and `getMetaStore().put()` under `customers/<id>/{timestamp}-{safeFilename}` (`<id>` from `config.demoCustomer.id` via `getCustomerKeyPrefix()`). The resulting `FileRef[]` is appended to the session. Each `FileRef` carries `company` (displayName), `companyPath` (the storage key prefix), and optional `url` (when the backend returns one).
+
+**Files-drawer flow.** `app/api/files/route.ts` GET lists the same prefix, joins each object with its sidecar metadata (synthesizing a sidecar on the fly when missing), and returns rows for `FilesDrawer.tsx`. DELETE removes the object and sidecar together and prunes matching entries from the session's `files[]`.
+
+**Storage backends** (`lib/storage/index.ts`). `ObjectStore` + `MetaStore` interfaces; implementations in `local-fs.ts` (files at `uploads/<key>` on disk) and `vercel-blob.ts` (private blobs, SDK-authenticated reads/writes via `BLOB_READ_WRITE_TOKEN`). Backend selection: `STORAGE_BACKEND=vercel-blob|local-fs`, or auto — Vercel Blob when `BLOB_READ_WRITE_TOKEN` is set, else `local-fs`. Upload, drawer, file-review, and chat image inlining all go through these adapters; only the standards corpus and escalation log still use direct `fs`.
 
 ---
 
@@ -73,14 +76,19 @@ Upload flow is the same shape but simpler: `app/api/upload/route.ts` parses mult
 
 | File | Purpose | Imports from | Used by |
 |---|---|---|---|
-| `config.ts` | Single source of truth for tunables: model, max tokens, customer info, stages, upload allowlist (mime + ext), per-company upload root, escalation paths, placeholder design link, handoff message, `fileReview` knobs (`standardsDir`, `maxExtractCharsPerFile`, `maxFilesPerReview`). Exports `config` object + `StageId` type + `getStageLabel(id)`. | — | all other lib files, `app/page.tsx`, both API routes |
+| `config.ts` | Single source of truth for tunables: model, max tokens, `demoCustomer` (`id`, `displayName`, `contact`), stages, upload allowlist (mime + ext), `upload.companyRootDir` (local-fs root segment), escalation paths, placeholder design link, handoff message, `fileReview` knobs (`standardsDir`, `maxExtractCharsPerFile`, `maxFilesPerReview`). Exports `config` object + `StageId` type + `getStageLabel(id)`. | — | all other lib files, `app/page.tsx`, all API routes |
 | `knowledge.ts` | Reads `csr.md` + xlsx once per server process, caches result. Exports `loadKnowledge(): KnowledgeBase` and `normalizeStage()` helper. Skips `项目沟通档案表` sheet by design. | `xlsx`, `node:fs`, `node:path` | `app/api/chat/route.ts`, indirectly `prompt.ts` |
 | `prompt.ts` | Assembles the system prompt per request. Filters scripts by `stageId`. Emits the post-escalation directive when `escalated` is true. The behavior-rules block embeds rule #7 (file-review trigger conditions); see `docs/PROMPT_DESIGN.md`. | `config.ts`, knowledge types | `app/api/chat/route.ts` |
-| `claude.ts` | Anthropic SDK wrapper. `streamChat` handles the streaming + multi-iteration tool-use loop. Converts session messages to `MessageParam[]` and inlines image attachments as base64 image blocks; non-image attachments become a text marker that includes the company folder so the model can recognize the review target. | `@anthropic-ai/sdk`, `config.ts`, session types, `node:fs`, `node:path` | `app/api/chat/route.ts` |
+| `claude.ts` | Anthropic SDK wrapper. `streamChat` handles the streaming + multi-iteration tool-use loop. Converts session messages to `MessageParam[]` and inlines image attachments as base64 image blocks (fetched via `getObjectStore().get(path)`); non-image attachments become a text marker that includes `companyPath` so the model can recognize the review target. | `@anthropic-ai/sdk`, `config.ts`, `storage`, session types | `app/api/chat/route.ts` |
 | `escalation.ts` | Tool schema (`escalationTool`, name `notify_project_manager`) + `notifyProjectManager()` that writes the structured log block. | `config.ts`, session types, `node:fs`, `node:path` | `app/api/chat/route.ts` |
-| `customer-files.ts` | Pure helpers shared by `/api/upload` and `file-review.ts`: `sanitizePathSegment`, `sanitizeFilename`, `getCustomerCompany`, `getCustomerUploadDir`, `getRelativePath`, `getExtension`, `isAllowedUpload`, `mimeTypeFor`, `supportedUploadLabel`. No I/O, no side effects. | `config.ts`, `node:path` | `app/api/upload/route.ts`, `file-review.ts` |
-| `file-review.ts` | Tool schema (`fileReviewTool`, name `review_customer_files`) + `buildFileReviewContext({scope, request})`. Walks the customer's upload folder, extracts content per file type (image dimensions via header-parse, text/csv/md raw, xlsx via SheetJS, docx via `mammoth`, doc via `word-extractor`, pdf via `pdf-parse`), bundles with the standards corpus slice for the requested scope, and returns a single string for the tool_result. Enforces `maxFilesPerReview` and `maxExtractCharsPerFile` caps. Also exports `extractFile` + the per-format extension sets for reuse by `lib/file-meta.ts` (upload-time sidecar) and `app/api/files/route.ts` (drawer GET). | `xlsx`, `mammoth`, `word-extractor`, `pdf-parse`, `config.ts`, `customer-files.ts`, `node:fs`, `node:path` | `app/api/chat/route.ts`, `lib/file-meta.ts` |
-| `session.ts` | In-memory `Map<sessionId, Session>` with the CRUD helpers `getOrCreateSession`, `appendMessage`, `appendFiles`, `setStage`, `markEscalated`, `getRecentMessages`. Defines `ChatMessage`, `FileRef` (with optional `company` / `companyPath` for the per-company upload tree), `Session` types. | — | both API routes, `claude.ts` (via type import), `escalation.ts` (via type import) |
+| `customer-files.ts` | Customer identity + path helpers: `getCustomerId`, `getCustomerDisplayName`, `getCustomerKeyPrefix` (`customers/<id>`), `sanitizePathSegment`, `sanitizeFilename`, `getExtension`, `isAllowedUpload`, `mimeTypeFor`, `supportedUploadLabel`. `getCustomerCompany` / `getCustomerUploadDir` are deprecated aliases kept for migration. No storage I/O. | `config.ts`, `node:path` | upload/files routes, `file-review.ts`, `prompt.ts` |
+| `file-meta.ts` | Sidecar schema (`FileMeta`, `FileStatus`), `computeFileMeta` (calls `extractFile`), `parseDiskFilename`. Shared by upload (write sidecar), files drawer (read/synthesize), and review (inventory notes). | `file-review.ts` (`extractFile`), storage types | `app/api/upload/route.ts`, `app/api/files/route.ts` |
+| `file-review.ts` | Tool schema (`fileReviewTool`, name `review_customer_files`) + `buildFileReviewContext({scope, request})`. Lists objects under `getCustomerKeyPrefix()`, fetches each via `ObjectStore`, extracts content per file type (image dimensions via header-parse, text/csv/md raw, xlsx via SheetJS, docx via `mammoth`, doc via `word-extractor`, pdf via `pdf-parse`), reads standards Markdown via `fs.readFileSync`, and returns one tool_result string. Logs list/get outcomes via `logFileEvent`. Also exports `extractFile` + per-format extension sets. | `xlsx`, `mammoth`, `word-extractor`, `pdf-parse`, `config.ts`, `customer-files.ts`, `storage`, `log.ts`, `node:fs`, `node:path` | `app/api/chat/route.ts`, `lib/file-meta.ts` |
+| `log.ts` | Structured JSON logging for upload/files routes (`logFileEvent(source, level, reason, ctx)` → stderr). | — | `app/api/upload/route.ts`, `app/api/files/route.ts`, `file-review.ts` |
+| `storage/index.ts` | Factory for `getObjectStore()`, `getMetaStore()`, `getStorageBackend()`. Selects `local-fs` or `vercel-blob` from env. | `local-fs.ts`, `vercel-blob.ts` | upload, files, chat (`claude.ts`), `file-review.ts` |
+| `storage/local-fs.ts` | Disk backend: objects at `uploads/<key>`, sidecars at `uploads/<key>.meta.json`. | `node:fs`, `node:path` | via `storage/index.ts` |
+| `storage/vercel-blob.ts` | Vercel Blob backend: all blobs created with `access: 'private'`; reads via SDK `get()`, deletes idempotent (`BlobNotFoundError` swallowed). | `@vercel/blob` | via `storage/index.ts` |
+| `session.ts` | In-memory `Map<sessionId, Session>` with CRUD helpers. Defines `ChatMessage`, `FileRef` (`path` is the storage key; optional `company`, `companyPath`, `url`), `Session`. | — | all API routes, `claude.ts`, `escalation.ts` |
 
 ### `app/`
 
@@ -90,13 +98,15 @@ Upload flow is the same shape but simpler: `app/api/upload/route.ts` parses mult
 | `page.tsx` | Server component. Generates a fresh `sessionId = nanoid()` on every render (enforces AC #13 — refresh resets). Passes config-derived stage list and customer info to `<ChatWindow>`. |
 | `globals.css` | Tailwind directives + chat-bubble custom classes + typing-dot keyframes. |
 | `api/chat/route.ts` | POST handler. Sets `runtime = 'nodejs'` and `dynamic = 'force-dynamic'`. Builds a `ReadableStream` that pumps SSE-formatted JSON events. Registers both tools (`escalationTool`, `fileReviewTool`). `onToolUse` dispatches by name: `review_customer_files` → `buildFileReviewContext(input)`; `notify_project_manager` → log + `markEscalated()` + emit `escalated` event. Appends user + final assistant messages to session. |
-| `api/upload/route.ts` | POST handler using `request.formData()`. Resolves the company folder via `getCustomerUploadDir(getCustomerCompany())` and `fs.mkdirSync(..., { recursive: true })`. Validates each entry with `isAllowedUpload(name, type)` (mime OR extension match) and size against `config.upload.maxSizeMB`. Returns 415/413 with Chinese error messages on rejection. Writes to `./uploads/customers/<company>/{timestamp}-{safeFilename}` and stamps each `FileRef` with `company` + `companyPath`. |
+| `api/upload/route.ts` | POST handler using `request.formData()`. Validates mime/extension and size; `objectStore.put` + `metaStore.put` under `getCustomerKeyPrefix()`; logs via `logFileEvent`. Returns 415/413 with Chinese error messages on rejection. Stamps each `FileRef` with `company`, `companyPath`, and optional `url`. |
+| `api/files/route.ts` | GET lists objects + sidecars for the drawer; synthesizes missing sidecars via `computeFileMeta`. DELETE removes object + sidecar and calls `removeFiles` on the session. Logs list/get/delete outcomes. |
 
 ### `components/`
 
 | File | Purpose |
 |---|---|
-| `ChatWindow.tsx` | Client orchestrator. Holds `messages[]`, `stageId`, `hasChosenStage`, `isStreaming`, `streamingMsgId`. Calls `/api/upload` first if there are pending files, then `/api/chat` with the new message. Parses SSE deltas and accumulates into the assistant message in state. |
+| `ChatWindow.tsx` | Client orchestrator. Holds `messages[]`, `stageId`, `hasChosenStage`, `isStreaming`, `streamingMsgId`, files-drawer open state. Calls `/api/upload` first if there are pending files, then `/api/chat` with the new message. Parses SSE deltas and accumulates into the assistant message in state. |
+| `FilesDrawer.tsx` | Right-side drawer ("我上传的文件"): fetches `/api/files`, shows per-file extraction status badges from sidecar metadata, single + bulk delete. |
 | `MessageBubble.tsx` | Role-based bubble styling. Renders user content as plain text, assistant content via `react-markdown`. Shows attachment chips (image icon vs PDF icon) and a typing-dot animation when the bubble is empty + streaming. |
 | `ComposerBar.tsx` | File picker (📎), textarea (Enter to send, Shift+Enter newline, respects IME composition), send button. Client-side validates files against `ALLOWED_MIME` **or** `ALLOWED_EXTENSIONS` and `MAX_SIZE_MB` before submitting; shows a red error banner on failure. Includes a one-line hint underneath telling the customer which extensions are accepted and that file review only runs when explicitly asked. |
 | `StageSelector.tsx` | Renders six stage buttons + a "跳过" (skip) button. Disappears after first selection (controlled by parent's `hasChosenStage`). |
@@ -148,9 +158,9 @@ These are demo-scope decisions, all called out in the spec §16 as V2 swap point
 | In-memory `Map` session store | Redis / SQLite — only `lib/session.ts` needs a different implementation |
 | `fs.appendFileSync` log | Webhook POST to WeChat Work / Slack / email — only `notifyProjectManager` in `lib/escalation.ts` changes |
 | No session GC | Add `lastActiveAt`, prune on access — same file |
-| No auth, customer hardcoded | URL token / OAuth — touch `page.tsx`, `config.ts`, and `getCustomerCompany()` in `customer-files.ts` (currently returns the demo company) |
+| No auth, customer hardcoded | URL token / OAuth — touch `page.tsx`, `config.ts`, and `getCustomerId()` in `customer-files.ts` (currently returns `demoCustomer.id`) |
 | Knowledge from local files | DB / Notion / multi-xlsx merge — `lib/knowledge.ts` |
-| Local-disk uploads under `uploads/customers/<company>/` | S3 / OSS / company-scoped bucket — `customer-files.ts` paths + the file walker in `file-review.ts` |
+| `local-fs` / Vercel Blob adapters | Add a case in `lib/storage/index.ts` (`createStores`) for R2 / S3 / Supabase — routes stay unchanged |
 | Synchronous content extraction (xlsx + pdf-parse on the request thread) | Background indexer + cached extracts keyed by file hash — `file-review.ts` `extractFile()` becomes a cache lookup |
 
 The tool schema, prompt structure, and route handlers stay identical across all of these swaps. That's the value of the layering.
@@ -160,7 +170,9 @@ The tool schema, prompt structure, and route handlers stay identical across all 
 ## 6. Known issues / non-issues
 
 - **Next.js 14.2.15** has a security advisory ([2025-12-11](https://nextjs.org/blog/security-update-2025-12-11)). Build works, but a Next 15 upgrade is a 5-minute exercise. No code change required beyond `npx @next/codemod@latest upgrade latest` (cookies/headers/params became async — we don't use any).
-- **`@anthropic-ai/sdk@0.32.1`** predates `DocumentBlockParam`. Non-image uploads are passed to Claude as text markers like `[客户上传文件: report.pdf (application/pdf, 240 KB, 公司资料文件夹：uploads/customers/<id>) — 文件已落盘。…]` (see `attachmentsToBlocks` in `lib/claude.ts`). The original spec's "PDFs stored, not parsed" rule still holds in the chat path; PDF / xlsx / text content is only ever extracted on demand inside `review_customer_files`. Bumping the SDK lets you pass PDFs as `{type: 'document', source: {type: 'base64', ...}}` — one block in `lib/claude.ts` to change.
+- **`@anthropic-ai/sdk@0.32.1`** predates `DocumentBlockParam`. Non-image uploads are passed to Claude as text markers like `[客户上传文件: report.pdf（application/pdf, 240 KB，公司资料文件夹：customers/<id>）— 文件已落盘。…]` (see `attachmentsToBlocks` in `lib/claude.ts`). The original spec's "PDFs stored, not parsed" rule still holds in the chat path; PDF / xlsx / text content is only ever extracted on demand inside `review_customer_files`. Bumping the SDK lets you pass PDFs as `{type: 'document', source: {type: 'base64', ...}}` — one block in `lib/claude.ts` to change.
+- **Standards corpus on Vercel.** `readStandards()` uses `fs.readFileSync` on `standards/customer-file-review/`; Next.js output file tracing does not include those paths automatically. `next.config.mjs` sets `experimental.outputFileTracingIncludes` for `/api/chat` so `workflow.md` and siblings land in the serverless bundle. If review fails with `ENOENT` on a standards file after deploy, check that config survived the build.
+- **Vercel Blob is private.** `vercel-blob.ts` uses `access: 'private'` and SDK-authenticated `get()`; do not switch an existing store to public without re-uploading. `BLOB_READ_WRITE_TOKEN` must be set in the Vercel project env.
 - **No prompt caching.** Every request resends ~3000 tokens of system prompt. See `docs/PROMPT_DESIGN.md` for the `cache_control` upgrade.
 - **No session TTL.** Old sessions sit in memory forever. Fine for demo; add a prune step before production.
 

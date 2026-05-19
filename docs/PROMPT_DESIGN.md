@@ -199,7 +199,7 @@ Between persona and scripts:
 ```
 ═══════════════════════════════
 【当前服务的客户】
-- 公司：${config.demoCustomer.company}
+- 公司：${config.demoCustomer.displayName}
 - 对接人：${config.demoCustomer.contact}
 - 当前项目阶段：${stageName ? `${stageName}（${stageId}）` : '客户尚未明确，请通过对话判断或委婉询问'}
 ```

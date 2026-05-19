@@ -1,6 +1,6 @@
 # File Review
 
-**TL;DR.** `review_customer_files` is the second tool exposed to Claude (next to `notify_project_manager`). It only fires when the customer explicitly asks for a materials check. The handler walks `uploads/customers/<company>/`, extracts text from xlsx / pdf / txt / csv / md, reads image dimensions from the file header (no OCR), bundles the result with a slice of a vendor-neutral standards corpus, and returns one big text blob as the `tool_result`. The model then writes a bilingual customer-facing report with file-path citations as evidence.
+**TL;DR.** `review_customer_files` is the second tool exposed to Claude (next to `notify_project_manager`). It only fires when the customer explicitly asks for a materials check. The handler lists objects under `getCustomerKeyPrefix()` (`customers/<id>/`) via `ObjectStore`, extracts text from xlsx / pdf / txt / csv / md / doc / docx, reads image dimensions from the file header (no OCR), bundles the result with a slice of a vendor-neutral standards corpus (read from disk via `fs`), and returns one big text blob as the `tool_result`. The model then writes a bilingual customer-facing report citing storage keys as evidence.
 
 This doc covers: the tool schema, the standards corpus layout, how scopes map to references, the content extractors, and how to extend any of them.
 
@@ -52,11 +52,11 @@ Whatever string `buildFileReviewContext` returns is fed back to Claude as the `t
 
 `buildFileReviewContext` (in `lib/file-review.ts`) does, in order:
 
-1. `getCustomerUploadDir(getCustomerCompany())` → the company folder.
-2. `listFiles(companyDir)` → recursive walk, sorted, hidden files skipped, capped at `config.fileReview.maxFilesPerReview` (default 40). If the folder has more, the rest are dropped and an `omittedDirective` is appended telling the model to say so in the report.
-3. For each file: `fs.statSync` for size, `mimeTypeFor()` for type, image-size detection if applicable (see §4), and `extractFile()` for text content (see §4). Extracted text is truncated to `config.fileReview.maxExtractCharsPerFile` (default 6000 chars) with a `[已截断…]` marker.
-4. `readStandards(scope)` → the standards bundle (see §3).
-5. Renders the whole thing as a single string with five sections: customer/folder header + output requirements + file inventory table + extracted content + standards corpus.
+1. `getCustomerKeyPrefix()` → storage prefix `customers/<id>/` (from `config.demoCustomer.id`).
+2. `getObjectStore().list(prefix)` → flat list of objects in that prefix, capped at `config.fileReview.maxFilesPerReview` (default 40). Sidecar keys (`*.meta.json`) are excluded by the store adapters. If more files exist, an `omittedDirective` is appended telling the model to say so in the report. List failures are logged (`list_failed`) and rethrown.
+3. For each object: `objectStore.get(key)` → `extractFile()` for content (see §4). Size and mime come from the object metadata and filename; extracted text is truncated to `config.fileReview.maxExtractCharsPerFile` (default 6000 chars) with a `[已截断…]` marker. Get failures are logged (`get_failed`) and recorded in the inventory `Note`.
+4. `readStandards(scope)` → `fs.readFileSync` on the standards corpus under `config.fileReview.standardsDir` (see §3). On Vercel, these files must be included via `outputFileTracingIncludes` in `next.config.mjs` (see `docs/ARCHITECTURE.md` §6).
+5. Renders the whole thing as a single string with five sections: customer/header + output requirements + file inventory table + extracted content + standards corpus.
 
 The output requirements section (`【输出要求】`) is the live contract the model writes to. It pins the status vocabulary, mandates file-path evidence, restricts `不可读` claims to files whose `Note` explicitly says so, and forbids exposing internal paths (scripts, source PDFs).
 
@@ -134,12 +134,12 @@ The tool_result string is laid out as:
 ```
 【客户资料检查上下文】
 客户公司：<displayName>
-公司资料文件夹：customers/gss
+公司资料目录前缀：customers/<id>
 客户请求：<original request>
 检查范围：<scope>
 
 [empty-folder directive if 0 files]
-[omitted-files directive if listFiles > maxFilesPerReview]
+[omitted-files directive if list() > maxFilesPerReview]
 
 【输出要求】
 - 用客户可读的中英双语报告格式输出。
@@ -242,11 +242,11 @@ When the pack evolves, edit `standards/customer-file-review/*.md` and both surfa
 ## 9. Known limitations
 
 - **No `tool_result` caching.** Every review re-walks the folder and re-extracts content. For a stable folder, an extract cache keyed by path+mtime would cut input tokens substantially.
-- **One customer per server.** `getCustomerCompany()` returns the demo company; the review tool reads the same folder for every session. Multi-tenant needs a session→customer resolver.
+- **One customer per server.** `getCustomerId()` returns `config.demoCustomer.id`; the review tool reads the same `customers/<id>/` prefix for every session. Multi-tenant needs a session→customer resolver.
 - **PDF text extraction is best-effort.** Scanned PDFs return empty text. OCR is out of scope; the model is told to fall back to `需确认`.
 - **Image content is never inspected.** Only dimensions. "Logo on white background, no watermark" claims must come from explicit customer assertion, never from the tool.
 - **Truncation is unindicated to the model beyond a marker.** If a 50,000-char spreadsheet was needed to make a finding, the report might miss it; `maxExtractCharsPerFile` should be tuned based on actual customer-folder size.
-- **No protection against path traversal in `getCustomerUploadDir`.** Today `company` is hardcoded so it's safe; if you ever take company from request input, sanitize before joining.
+- **No protection against path traversal in storage keys.** Today `id` is hardcoded in config so it's safe; if you ever take customer identity from request input, sanitize via `sanitizePathSegment` before building keys.
 
 ---
 
