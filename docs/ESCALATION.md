@@ -84,11 +84,11 @@ Each escalation appends one block to `./logs/escalations.log`. Real example from
 [2026-05-11 23:54:13] ESCALATION
 ─────────────────────────────────────────────────────────────
 Session:    sess-esc
-Customer:   东永盛 / 王总
+Customer:   Gregarious Simulation Systems / 王总
 Stage:      首页设计 (homepage)
 Reason:     customer_dissatisfied
 Urgency:    high
-Summary:    客户王总（东永盛）对首页设计稿持续不满，反馈颜色暗沉、整体杂乱、配色不对，
+Summary:    客户王总（Gregarious Simulation Systems）对首页设计稿持续不满，反馈颜色暗沉、整体杂乱、配色不对，
             经多轮沟通后情绪升级，表示"根本做不好"，需要PM介入安抚并推进设计方向确认。
 
 Recent Messages (last 6):

@@ -32,7 +32,7 @@ What 小鹏 does NOT do (intentional — see `lily-mvp-ticket.md` §3):
 
 ## 2. Status
 
-The original 13-AC MVP is feature-complete and verified; three escalations sit in `logs/escalations.log` from manual end-to-end testing. The customer-file-review feature was added on top and has been smoke-tested end-to-end against `uploads/customers/东永盛/`. A file management drawer ("我上传的文件") was added on top of that, exposing the per-company upload folder in the chat UI with per-file extraction status badges and single + bulk delete; see §5 convention #10 for the sidecar invariant it relies on.
+The original 13-AC MVP is feature-complete and verified; three escalations sit in `logs/escalations.log` from manual end-to-end testing. The customer-file-review feature was added on top and has been smoke-tested end-to-end against `uploads/customers/gss/`. A file management drawer ("我上传的文件") was added on top of that, exposing the per-company upload folder in the chat UI with per-file extraction status badges and single + bulk delete; see §5 convention #10 for the sidecar invariant it relies on.
 
 Stack: Next.js 14.2.15 (App Router), React 18, TypeScript 5, Tailwind 3, `@anthropic-ai/sdk@0.32.1`, `xlsx@0.18.5` (knowledge load + spreadsheet extraction), `pdf-parse@2.4.5` (PDF text extraction), `react-markdown@9`, `nanoid@5`.
 
@@ -114,7 +114,7 @@ Read these before touching code. They prevent the most common mistakes:
 
 5. **The persona + KB are cached at module scope in `loadKnowledge()`.** Edits to `knowledge/csr.md` or the xlsx require a `npm run dev` restart to pick up.
 
-6. **SDK pinned to `@anthropic-ai/sdk@0.32.1`.** This is older than current and predates native PDF document blocks. Non-image uploads are passed to Claude as text markers like `[客户上传文件: foo.pdf（application/pdf, 240 KB，公司资料文件夹：uploads/customers/东永盛）— 文件已落盘。…]` (see `attachmentsToBlocks` in `lib/claude.ts`). Images still go through as native `image` blocks. When the model needs the actual content of a non-image file, it calls `review_customer_files`, which extracts on demand. If you bump the SDK, see `docs/ARCHITECTURE.md` for where to enable document blocks.
+6. **SDK pinned to `@anthropic-ai/sdk@0.32.1`.** This is older than current and predates native PDF document blocks. Non-image uploads are passed to Claude as text markers like `[客户上传文件: foo.pdf（application/pdf, 240 KB，公司资料文件夹：uploads/customers/gss）— 文件已落盘。…]` (see `attachmentsToBlocks` in `lib/claude.ts`). Images still go through as native `image` blocks. When the model needs the actual content of a non-image file, it calls `review_customer_files`, which extracts on demand. If you bump the SDK, see `docs/ARCHITECTURE.md` for where to enable document blocks.
 
 7. **The escalated session flag is one-way for the demo.** Once `session.escalated = true`, there is no "un-escalate". The post-escalation directive will be appended to every subsequent system prompt until session reset (browser refresh).
 

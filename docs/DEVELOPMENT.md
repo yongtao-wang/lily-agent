@@ -33,7 +33,7 @@ The 13 ACs from spec §13, mapped to test recipes. Run the dev server before any
 | AC | What to verify | How |
 |---|---|---|
 | 1 | Page loads at localhost:3000 | `curl -sf http://localhost:3000/ \| head -c 200` returns HTML |
-| 2 | DEMO MODE banner shows 东永盛 / 王总 | `curl -s http://localhost:3000/ \| grep -oE 'DEMO MODE\|东永盛\|王总'` |
+| 2 | DEMO MODE banner shows Gregarious Simulation Systems / 王总 | `curl -s http://localhost:3000/ \| grep -oE 'DEMO MODE\|Gregarious Simulation Systems\|王总'` |
 | 3 | Opening message + 6 stage buttons + 跳过 | `curl -s http://localhost:3000/ \| grep -oE '资料收集\|首页设计\|跳过'` |
 | 4 | Stage button → 小鹏 acks with stage talking points | Open browser, click `首页设计`, verify response references 图片素材 + 本周 |
 | 5 | QA-style question → standard-flavored answer | Type "我想看你们给别人做的详情页参考"; verify 小鹏 redirects to placeholder or offers alternatives |
@@ -52,7 +52,7 @@ The file-review feature is not part of the original 13 ACs. Its smoke test lives
 
 ## 3. Upload endpoint tests
 
-Heads-up: uploads no longer land in `uploads/{sessionId}/`. The route resolves `getCustomerCompany()` (currently `config.demoCustomer.company`, `东永盛`) and writes to `uploads/customers/<company>/`. The returned `FileRef` includes `company` and `companyPath` fields.
+Heads-up: uploads no longer land in `uploads/{sessionId}/`. The route resolves `getCustomerKeyPrefix()` (currently `customers/gss`, derived from `config.demoCustomer.id`) and writes via the storage adapter — `uploads/customers/gss/` for the local-fs backend, or the same prefix in Vercel Blob when `BLOB_READ_WRITE_TOKEN` is set. The returned `FileRef` includes `company` (displayName), `companyPath` (the key prefix), and `url` (blob URL when applicable).
 
 ### Valid PNG (AC #6)
 
@@ -65,10 +65,10 @@ curl -sS -X POST http://localhost:3000/api/upload \
   -F "files=@/tmp/test.png;type=image/png"
 
 # Verify
-ls -la uploads/customers/东永盛/
+ls -la uploads/customers/gss/
 ```
 
-Expected: JSON like `{"files":[{"filename":"test.png","path":"uploads/customers/东永盛/...","mimeType":"image/png","sizeBytes":68,"company":"东永盛","companyPath":"uploads/customers/东永盛"}]}`, file present in `uploads/customers/东永盛/`.
+Expected: JSON like `{"files":[{"filename":"test.png","path":"customers/gss/...","mimeType":"image/png","sizeBytes":68,"company":"Gregarious Simulation Systems","companyPath":"customers/gss"}]}`, file present in `uploads/customers/gss/`.
 
 ### Valid xlsx (file-review feature)
 
@@ -188,7 +188,7 @@ In a browser: open localhost:3000, click a stage, send a message, then hard-refr
 
 ### Materials review (file-review feature)
 
-Smoke test for `review_customer_files`. Make sure `uploads/customers/东永盛/` has at least one file (use the upload curl above or drop a file in via the UI).
+Smoke test for `review_customer_files`. Make sure `uploads/customers/gss/` has at least one file (use the upload curl above or drop a file in via the UI).
 
 ```bash
 curl -sN -X POST http://localhost:3000/api/chat \
@@ -197,7 +197,7 @@ curl -sN -X POST http://localhost:3000/api/chat \
   --max-time 90
 ```
 
-Expected: SSE stream containing a bilingual report ("资料检查结果 / Materials Readiness Review") with a `模块 / Module` table that uses only the four allowed statuses (`符合 / 缺失 / 需确认 / 可优化`) and cites file paths like `uploads/customers/东永盛/...` as evidence. Ends with `{"type":"done"}`. No `escalated` event.
+Expected: SSE stream containing a bilingual report ("资料检查结果 / Materials Readiness Review") with a `模块 / Module` table that uses only the four allowed statuses (`符合 / 缺失 / 需确认 / 可优化`) and cites file paths like `uploads/customers/gss/...` as evidence. Ends with `{"type":"done"}`. No `escalated` event.
 
 Negative test — make sure a pure upload turn does **not** trigger the tool:
 
@@ -359,7 +359,7 @@ Edit the `escalatedBlock` in `lib/prompt.ts`. Current text says "你只做：共
 - **No session TTL.** `lib/session.ts` `Map` accumulates orphaned sessions indefinitely. Fine for demo; add LRU eviction before production.
 - **No HMR for knowledge files.** Edit `csr.md` or the xlsx → restart server. The `loadKnowledge()` module cache doesn't watch files. The file-review tool's standards corpus is **not** cached — Markdown edits under `standards/customer-file-review/` take effect on the next tool call without a restart.
 - **`pdf-parse@2.4.5` is best-effort.** Some PDFs (scanned, password-protected, weirdly encoded) return no text. The review tool surfaces this as `Note: PDF text extraction returned no text` in the inventory, and the model is instructed to fall back to `需确认` rather than fabricate. If real customers send PDFs that fail often, evaluate `pdfjs-dist` or an OCR step.
-- **Single-customer demo.** `getCustomerCompany()` returns `config.demoCustomer.company` — all uploads land in one shared `uploads/customers/东永盛/` folder, and `review_customer_files` reads the same folder for every session. Multi-customer deployment requires a per-session customer identity and a real `getCustomerCompany(sessionId)` implementation.
+- **Single-customer demo.** `getCustomerId()` returns `config.demoCustomer.id` — all uploads land under one shared `customers/gss/` storage prefix, and `review_customer_files` reads the same prefix for every session. Multi-customer deployment requires a per-session customer identity and a real `getCustomerId(sessionId)` implementation.
 
 ---
 

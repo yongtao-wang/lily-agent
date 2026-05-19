@@ -9,8 +9,8 @@ export const config = {
   // For future multi-tenant: replace this with a customers table / KV namespace and
   // generate id via slugify(displayName) + nanoid suffix, or pure nanoid for opacity.
   demoCustomer: {
-    id: '东永盛',
-    displayName: '东永盛',
+    id: 'gss',
+    displayName: 'Gregarious Simulation Systems',
     contact: '王总',
   },
 

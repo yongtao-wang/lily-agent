@@ -100,7 +100,7 @@ Upload flow is the same shape but simpler: `app/api/upload/route.ts` parses mult
 | `MessageBubble.tsx` | Role-based bubble styling. Renders user content as plain text, assistant content via `react-markdown`. Shows attachment chips (image icon vs PDF icon) and a typing-dot animation when the bubble is empty + streaming. |
 | `ComposerBar.tsx` | File picker (📎), textarea (Enter to send, Shift+Enter newline, respects IME composition), send button. Client-side validates files against `ALLOWED_MIME` **or** `ALLOWED_EXTENSIONS` and `MAX_SIZE_MB` before submitting; shows a red error banner on failure. Includes a one-line hint underneath telling the customer which extensions are accepted and that file review only runs when explicitly asked. |
 | `StageSelector.tsx` | Renders six stage buttons + a "跳过" (skip) button. Disappears after first selection (controlled by parent's `hasChosenStage`). |
-| `DemoBanner.tsx` | Yellow top bar showing `🧪 DEMO MODE · 客户：东永盛 · 对接人：王总`. |
+| `DemoBanner.tsx` | Yellow top bar showing `🧪 DEMO MODE · 客户：Gregarious Simulation Systems · 对接人：王总`. |
 
 ---
 
@@ -160,7 +160,7 @@ The tool schema, prompt structure, and route handlers stay identical across all 
 ## 6. Known issues / non-issues
 
 - **Next.js 14.2.15** has a security advisory ([2025-12-11](https://nextjs.org/blog/security-update-2025-12-11)). Build works, but a Next 15 upgrade is a 5-minute exercise. No code change required beyond `npx @next/codemod@latest upgrade latest` (cookies/headers/params became async — we don't use any).
-- **`@anthropic-ai/sdk@0.32.1`** predates `DocumentBlockParam`. Non-image uploads are passed to Claude as text markers like `[客户上传文件: report.pdf (application/pdf, 240 KB, 公司资料文件夹：uploads/customers/东永盛) — 文件已落盘。…]` (see `attachmentsToBlocks` in `lib/claude.ts`). The original spec's "PDFs stored, not parsed" rule still holds in the chat path; PDF / xlsx / text content is only ever extracted on demand inside `review_customer_files`. Bumping the SDK lets you pass PDFs as `{type: 'document', source: {type: 'base64', ...}}` — one block in `lib/claude.ts` to change.
+- **`@anthropic-ai/sdk@0.32.1`** predates `DocumentBlockParam`. Non-image uploads are passed to Claude as text markers like `[客户上传文件: report.pdf (application/pdf, 240 KB, 公司资料文件夹：uploads/customers/gss) — 文件已落盘。…]` (see `attachmentsToBlocks` in `lib/claude.ts`). The original spec's "PDFs stored, not parsed" rule still holds in the chat path; PDF / xlsx / text content is only ever extracted on demand inside `review_customer_files`. Bumping the SDK lets you pass PDFs as `{type: 'document', source: {type: 'base64', ...}}` — one block in `lib/claude.ts` to change.
 - **No prompt caching.** Every request resends ~3000 tokens of system prompt. See `docs/PROMPT_DESIGN.md` for the `cache_control` upgrade.
 - **No session TTL.** Old sessions sit in memory forever. Fine for demo; add a prune step before production.
 
