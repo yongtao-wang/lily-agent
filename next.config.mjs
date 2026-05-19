@@ -3,6 +3,9 @@ const nextConfig = {
   reactStrictMode: true,
   experimental: {
     serverComponentsExternalPackages: ['xlsx'],
+    outputFileTracingIncludes: {
+      '/api/chat': ['./standards/customer-file-review/**/*'],
+    },
   },
 };
 
