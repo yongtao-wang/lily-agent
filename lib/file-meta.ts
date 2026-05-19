@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import {
   detectImageSize,
   extractFile,
@@ -18,10 +16,6 @@ export interface FileMeta {
   note: string | null;
   imageWidth: number | null;
   imageHeight: number | null;
-}
-
-function sidecarPath(absPath: string): string {
-  return `${absPath}.meta.json`;
 }
 
 function classify(
@@ -52,32 +46,31 @@ function classify(
 }
 
 export async function computeFileMeta(
-  absPath: string,
+  buf: Buffer,
   originalName: string,
   uploadedAt: number,
 ): Promise<FileMeta> {
-  const stat = fs.statSync(absPath);
-  const ext = getExtension(absPath);
+  const ext = getExtension(originalName);
   const mimeType = mimeTypeFor(originalName, '');
 
   let imageWidth: number | null = null;
   let imageHeight: number | null = null;
   let imageNote: string | undefined;
   if (IMAGE_EXTENSIONS.has(ext)) {
-    const dims = detectImageSize(absPath);
+    const dims = detectImageSize(buf);
     imageWidth = dims.width ?? null;
     imageHeight = dims.height ?? null;
     imageNote = dims.note;
   }
 
-  const extract = await extractFile(absPath, mimeType);
+  const extract = await extractFile(buf, originalName, mimeType);
   const combinedNote = [imageNote, extract.note].filter(Boolean).join('; ') || undefined;
   const { status, note } = classify(ext, { text: extract.text, note: combinedNote });
 
   return {
     originalName,
     mimeType,
-    sizeBytes: stat.size,
+    sizeBytes: buf.byteLength,
     uploadedAt,
     status,
     note,
@@ -86,41 +79,10 @@ export async function computeFileMeta(
   };
 }
 
-export function writeSidecar(absPath: string, meta: FileMeta): void {
-  fs.writeFileSync(sidecarPath(absPath), JSON.stringify(meta, null, 2), 'utf8');
-}
-
-export function readSidecar(absPath: string): FileMeta | null {
-  const sp = sidecarPath(absPath);
-  if (!fs.existsSync(sp)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(sp, 'utf8')) as FileMeta;
-  } catch {
-    return null;
-  }
-}
-
-export function deleteSidecar(absPath: string): void {
-  const sp = sidecarPath(absPath);
-  try {
-    fs.unlinkSync(sp);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-  }
-}
-
-export function isSidecar(filename: string): boolean {
-  return filename.endsWith('.meta.json');
-}
-
 export function parseDiskFilename(filename: string): { uploadedAt: number; originalName: string } {
   const match = /^(\d{10,16})-(.+)$/.exec(filename);
   if (match) {
     return { uploadedAt: Number(match[1]), originalName: match[2] };
   }
   return { uploadedAt: 0, originalName: filename };
-}
-
-export function sidecarFilePath(absPath: string): string {
-  return sidecarPath(absPath);
 }

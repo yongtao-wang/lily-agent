@@ -1,6 +1,7 @@
 export interface FileRef {
   filename: string;
   path: string;
+  url?: string;
   mimeType: string;
   sizeBytes: number;
   company?: string;

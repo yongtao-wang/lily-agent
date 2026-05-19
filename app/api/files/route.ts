@@ -1,19 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'node:fs';
-import path from 'node:path';
 import {
-  getCustomerCompany,
-  getCustomerUploadDir,
+  getCustomerDisplayName,
+  getCustomerKeyPrefix,
 } from '@/lib/customer-files';
 import {
   computeFileMeta,
-  isSidecar,
   parseDiskFilename,
-  readSidecar,
-  writeSidecar,
-  deleteSidecar,
   type FileMeta,
 } from '@/lib/file-meta';
+import { getMetaStore, getObjectStore } from '@/lib/storage';
 import { removeFiles } from '@/lib/session';
 import { logFileEvent } from '@/lib/log';
 
@@ -21,40 +16,45 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 interface FileRow extends FileMeta {
-  filename: string;
+  filename: string; // disk-style basename (timestamp-prefixed)
+  key: string; // canonical storage key
+  url?: string; // blob URL when backend provides one
 }
 
 export async function GET() {
-  const company = getCustomerCompany();
-  const baseDir = getCustomerUploadDir(company);
-  if (!fs.existsSync(baseDir)) {
-    return NextResponse.json({ files: [], company });
+  const company = getCustomerDisplayName();
+  const prefix = getCustomerKeyPrefix();
+  const objectStore = getObjectStore();
+  const metaStore = getMetaStore();
+
+  let objects;
+  try {
+    objects = await objectStore.list(prefix);
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    logFileEvent('files', 'error', 'list_failed', {
+      prefix,
+      code: e.code,
+      message: e.message,
+    });
+    return NextResponse.json({ files: [], company }, { status: 200 });
   }
 
-  const entries = fs.readdirSync(baseDir, { withFileTypes: true });
   const rows: FileRow[] = [];
-  for (const entry of entries) {
-    if (!entry.isFile()) continue;
-    if (entry.name.startsWith('.')) continue;
-    if (isSidecar(entry.name)) continue;
-
-    const absPath = path.join(baseDir, entry.name);
-    let meta = readSidecar(absPath);
+  for (const obj of objects) {
+    const diskName = obj.key.split('/').pop() ?? obj.key;
+    let meta = await metaStore.get(obj.key);
     if (!meta) {
-      const { uploadedAt, originalName } = parseDiskFilename(entry.name);
-      const stat = fs.statSync(absPath);
+      const { uploadedAt, originalName } = parseDiskFilename(diskName);
       try {
-        meta = await computeFileMeta(
-          absPath,
-          originalName,
-          uploadedAt || stat.mtimeMs,
-        );
-        writeSidecar(absPath, meta);
+        const buf = await objectStore.get(obj.key);
+        meta = await computeFileMeta(buf, originalName, uploadedAt || obj.uploadedAt);
+        await metaStore.put(obj.key, meta);
       } catch (err) {
         const e = err as NodeJS.ErrnoException;
         logFileEvent('files', 'error', 'list_sidecar_synthesis_failed', {
-          company,
-          diskName: entry.name,
+          key: obj.key,
+          diskName,
           filename: originalName,
           code: e.code,
           message: e.message,
@@ -62,7 +62,7 @@ export async function GET() {
         continue;
       }
     }
-    rows.push({ filename: entry.name, ...meta });
+    rows.push({ filename: diskName, key: obj.key, url: obj.url, ...meta });
   }
 
   rows.sort((a, b) => b.uploadedAt - a.uploadedAt);
@@ -108,33 +108,24 @@ export async function DELETE(req: NextRequest) {
     }
   }
 
-  const company = getCustomerCompany();
-  const baseDir = getCustomerUploadDir(company);
-  const baseResolved = path.resolve(baseDir) + path.sep;
+  const prefix = getCustomerKeyPrefix();
+  const objectStore = getObjectStore();
+  const metaStore = getMetaStore();
 
   const deleted: string[] = [];
   const errors: Array<{ filename: string; reason: string }> = [];
 
   for (const raw of filenames as string[]) {
-    const absPath = path.resolve(baseDir, raw);
-    if (!(absPath + path.sep).startsWith(baseResolved) && absPath !== path.resolve(baseDir)) {
-      logFileEvent('files', 'warn', 'delete_path_traversal', {
-        sessionId,
-        filename: raw,
-        message: 'path escapes company folder',
-      });
-      errors.push({ filename: raw, reason: 'path escapes company folder' });
-      continue;
-    }
+    const key = `${prefix}/${raw}`;
     try {
-      fs.unlinkSync(absPath);
-      deleteSidecar(absPath);
+      await objectStore.delete(key);
+      await metaStore.delete(key);
       deleted.push(raw);
     } catch (err) {
       const e = err as NodeJS.ErrnoException;
       logFileEvent('files', 'error', 'delete_failed', {
         sessionId,
-        company,
+        key,
         filename: raw,
         code: e.code,
         message: e.message,

@@ -14,12 +14,24 @@ export function sanitizeFilename(name: string): string {
   return name.replace(/[/\\:*?"<>|]+/g, '_').slice(0, 120) || 'file';
 }
 
-export function getCustomerCompany(): string {
-  return config.demoCustomer.company;
+export function getCustomerId(): string {
+  return config.demoCustomer.id;
 }
 
-export function getCustomerUploadDir(company = getCustomerCompany()): string {
-  return path.resolve(config.upload.companyRootDir, sanitizePathSegment(company));
+export function getCustomerDisplayName(): string {
+  return config.demoCustomer.displayName;
+}
+
+// id is permanent — changing config.demoCustomer.id orphans every blob ever
+// uploaded for this customer. To rename for UI purposes, change displayName instead.
+export function getCustomerKeyPrefix(id = getCustomerId()): string {
+  return `customers/${sanitizePathSegment(id)}`;
+}
+
+// Deprecated aliases — kept for one release while routes are migrated to the storage abstraction.
+export const getCustomerCompany = getCustomerDisplayName;
+export function getCustomerUploadDir(id = getCustomerId()): string {
+  return path.resolve(config.upload.companyRootDir, sanitizePathSegment(id));
 }
 
 export function getRelativePath(absPath: string): string {

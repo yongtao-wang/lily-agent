@@ -1,18 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'node:fs';
-import path from 'node:path';
 import { config } from '@/lib/config';
 import {
-  getCustomerCompany,
-  getCustomerUploadDir,
-  getRelativePath,
+  getCustomerDisplayName,
+  getCustomerId,
+  getCustomerKeyPrefix,
   isAllowedUpload,
   mimeTypeFor,
   sanitizeFilename,
   supportedUploadLabel,
 } from '@/lib/customer-files';
 import { appendFiles, type FileRef } from '@/lib/session';
-import { computeFileMeta, writeSidecar } from '@/lib/file-meta';
+import { computeFileMeta } from '@/lib/file-meta';
+import { getMetaStore, getObjectStore } from '@/lib/storage';
 import { logFileEvent } from '@/lib/log';
 
 export const runtime = 'nodejs';
@@ -40,21 +39,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'no files' }, { status: 400 });
   }
 
-  const company = getCustomerCompany();
-  const baseDir = getCustomerUploadDir(company);
-  try {
-    fs.mkdirSync(baseDir, { recursive: true });
-  } catch (err) {
-    const e = err as NodeJS.ErrnoException;
-    logFileEvent('upload', 'error', 'mkdir_failed', {
-      sessionId,
-      company,
-      baseDir,
-      code: e.code,
-      message: e.message,
-    });
-    throw err;
-  }
+  const customerId = getCustomerId();
+  const displayName = getCustomerDisplayName();
+  const prefix = getCustomerKeyPrefix(customerId);
+  const objectStore = getObjectStore();
+  const metaStore = getMetaStore();
 
   const maxBytes = config.upload.maxSizeMB * 1024 * 1024;
   const allowed = new Set(config.upload.allowedMimeTypes);
@@ -90,8 +79,9 @@ export async function POST(req: NextRequest) {
 
     const safe = sanitizeFilename(entry.name);
     const ts = Date.now();
-    const filename = `${ts}-${safe}`;
-    const absPath = path.join(baseDir, filename);
+    const diskName = `${ts}-${safe}`;
+    const key = `${prefix}/${diskName}`;
+    const contentType = mimeTypeFor(entry.name, entry.type);
 
     let buf: Buffer;
     try {
@@ -100,7 +90,7 @@ export async function POST(req: NextRequest) {
       const e = err as Error;
       logFileEvent('upload', 'error', 'arraybuffer_failed', {
         sessionId,
-        company,
+        customerId,
         filename: entry.name,
         sizeBytes: entry.size,
         message: e.message,
@@ -108,15 +98,16 @@ export async function POST(req: NextRequest) {
       throw err;
     }
 
+    let stored;
     try {
-      fs.writeFileSync(absPath, buf);
+      stored = await objectStore.put(key, buf, contentType);
     } catch (err) {
       const e = err as NodeJS.ErrnoException;
-      logFileEvent('upload', 'error', 'writefile_failed', {
+      logFileEvent('upload', 'error', 'put_failed', {
         sessionId,
-        company,
+        customerId,
         filename: entry.name,
-        diskName: filename,
+        diskName,
         sizeBytes: entry.size,
         code: e.code,
         message: e.message,
@@ -125,15 +116,15 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      const meta = await computeFileMeta(absPath, entry.name, ts);
-      writeSidecar(absPath, meta);
+      const meta = await computeFileMeta(buf, entry.name, ts);
+      await metaStore.put(key, meta);
     } catch (err) {
       const e = err as NodeJS.ErrnoException;
-      logFileEvent('upload', 'error', 'sidecar_failed', {
+      logFileEvent('upload', 'error', 'meta_put_failed', {
         sessionId,
-        company,
+        customerId,
         filename: entry.name,
-        diskName: filename,
+        diskName,
         sizeBytes: entry.size,
         code: e.code,
         message: e.message,
@@ -143,11 +134,12 @@ export async function POST(req: NextRequest) {
 
     saved.push({
       filename: entry.name,
-      path: getRelativePath(absPath),
-      mimeType: mimeTypeFor(entry.name, entry.type),
+      path: stored.key,
+      url: stored.url,
+      mimeType: contentType,
       sizeBytes: entry.size,
-      company,
-      companyPath: getRelativePath(baseDir),
+      company: displayName,
+      companyPath: prefix,
     });
   }
 

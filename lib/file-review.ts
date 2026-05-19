@@ -3,12 +3,12 @@ import path from 'node:path';
 import * as XLSX from 'xlsx';
 import { config } from './config';
 import {
-  getCustomerCompany,
-  getCustomerUploadDir,
+  getCustomerDisplayName,
+  getCustomerKeyPrefix,
   getExtension,
-  getRelativePath,
   mimeTypeFor,
 } from './customer-files';
+import { getObjectStore } from './storage';
 
 export const fileReviewTool = {
   name: 'review_customer_files',
@@ -73,41 +73,26 @@ function fileSizeLabel(bytes: number): string {
   return `${bytes} B`;
 }
 
-function readJpegSize(absPath: string): { width?: number; height?: number; note?: string } {
-  const fd = fs.openSync(absPath, 'r');
-  try {
-    const marker = Buffer.alloc(2);
-    fs.readSync(fd, marker, 0, 2, null);
-    while (true) {
-      const start = Buffer.alloc(1);
-      if (fs.readSync(fd, start, 0, 1, null) !== 1) {
-        return { note: 'image size unavailable: JPEG marker not found' };
-      }
-      if (start[0] !== 0xff) continue;
-
-      const code = Buffer.alloc(1);
-      fs.readSync(fd, code, 0, 1, null);
-      while (code[0] === 0xff) {
-        fs.readSync(fd, code, 0, 1, null);
-      }
-      if (code[0] >= 0xc0 && code[0] <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(code[0])) {
-        const size = Buffer.alloc(7);
-        fs.readSync(fd, size, 0, 7, null);
-        return { width: size.readUInt16BE(5), height: size.readUInt16BE(3) };
-      }
-      if ([0xd8, 0xd9].includes(code[0])) continue;
-
-      const len = Buffer.alloc(2);
-      if (fs.readSync(fd, len, 0, 2, null) !== 2) {
-        return { note: 'image size unavailable: JPEG segment truncated' };
-      }
-      fs.readSync(fd, Buffer.alloc(0), 0, 0, null);
-      const segmentLength = len.readUInt16BE(0);
-      fs.readSync(fd, Buffer.alloc(segmentLength - 2), 0, segmentLength - 2, null);
+function readJpegSize(buf: Buffer): { width?: number; height?: number; note?: string } {
+  let offset = 2; // skip SOI marker 0xff 0xd8
+  while (offset < buf.length) {
+    while (offset < buf.length && buf[offset] !== 0xff) offset++;
+    while (offset < buf.length && buf[offset] === 0xff) offset++;
+    if (offset >= buf.length) return { note: 'image size unavailable: JPEG marker not found' };
+    const code = buf[offset++];
+    if (code >= 0xc0 && code <= 0xcf && code !== 0xc4 && code !== 0xc8 && code !== 0xcc) {
+      if (offset + 7 > buf.length) return { note: 'image size unavailable: JPEG segment truncated' };
+      return {
+        width: buf.readUInt16BE(offset + 5),
+        height: buf.readUInt16BE(offset + 3),
+      };
     }
-  } finally {
-    fs.closeSync(fd);
+    if (code === 0xd8 || code === 0xd9) continue;
+    if (offset + 2 > buf.length) return { note: 'image size unavailable: JPEG segment truncated' };
+    const segLen = buf.readUInt16BE(offset);
+    offset += segLen;
   }
+  return { note: 'image size unavailable: JPEG marker not found' };
 }
 
 function readWebpSize(header: Buffer): { width?: number; height?: number; note?: string } {
@@ -140,17 +125,17 @@ function readWebpSize(header: Buffer): { width?: number; height?: number; note?:
   return { note: 'image size unavailable: unsupported WebP variant' };
 }
 
-export function detectImageSize(absPath: string): { width?: number; height?: number; note?: string } {
+export function detectImageSize(buf: Buffer): { width?: number; height?: number; note?: string } {
   try {
-    const header = fs.readFileSync(absPath).subarray(0, 64);
-    if (header.subarray(0, 8).equals(Buffer.from('\x89PNG\r\n\x1a\n', 'binary'))) {
-      return { width: header.readUInt32BE(16), height: header.readUInt32BE(20) };
+    const header = buf.subarray(0, 64);
+    if (header.length >= 8 && header.subarray(0, 8).equals(Buffer.from('\x89PNG\r\n\x1a\n', 'binary'))) {
+      return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
     }
     if (header.toString('ascii', 0, 6) === 'GIF87a' || header.toString('ascii', 0, 6) === 'GIF89a') {
       return { width: header.readUInt16LE(6), height: header.readUInt16LE(8) };
     }
     if (header[0] === 0xff && header[1] === 0xd8) {
-      return readJpegSize(absPath);
+      return readJpegSize(buf);
     }
     if (header.toString('ascii', 0, 4) === 'RIFF') {
       return readWebpSize(header);
@@ -161,13 +146,12 @@ export function detectImageSize(absPath: string): { width?: number; height?: num
   return { note: 'image size unavailable: unknown image format' };
 }
 
-function readTextFile(absPath: string): ExtractResult {
-  const text = fs.readFileSync(absPath, 'utf8');
-  return { text };
+function readTextFile(buf: Buffer): ExtractResult {
+  return { text: buf.toString('utf8') };
 }
 
-function readSpreadsheet(absPath: string): ExtractResult {
-  const workbook = XLSX.readFile(absPath, { cellDates: false });
+function readSpreadsheet(buf: Buffer): ExtractResult {
+  const workbook = XLSX.read(buf, { type: 'buffer', cellDates: false });
   const parts: string[] = [];
   for (const sheetName of workbook.SheetNames.slice(0, 8)) {
     const sheet = workbook.Sheets[sheetName];
@@ -192,19 +176,19 @@ function readSpreadsheet(absPath: string): ExtractResult {
   };
 }
 
-async function readDocx(absPath: string): Promise<ExtractResult> {
+async function readDocx(buf: Buffer): Promise<ExtractResult> {
   const mammoth = await import('mammoth');
-  const { value } = await mammoth.extractRawText({ path: absPath });
+  const { value } = await mammoth.extractRawText({ buffer: buf });
   return {
     text: value,
     note: value.trim() ? undefined : 'Word document text extraction returned no text',
   };
 }
 
-async function readDoc(absPath: string): Promise<ExtractResult> {
+async function readDoc(buf: Buffer): Promise<ExtractResult> {
   const WordExtractor = (await import('word-extractor')).default;
   const extractor = new WordExtractor();
-  const doc = await extractor.extract(absPath);
+  const doc = await extractor.extract(buf);
   const text = doc.getBody();
   return {
     text,
@@ -212,9 +196,9 @@ async function readDoc(absPath: string): Promise<ExtractResult> {
   };
 }
 
-async function readPdf(absPath: string): Promise<ExtractResult> {
+async function readPdf(buf: Buffer): Promise<ExtractResult> {
   const { PDFParse } = await import('pdf-parse');
-  const parser = new PDFParse({ data: new Uint8Array(fs.readFileSync(absPath)) });
+  const parser = new PDFParse({ data: new Uint8Array(buf) });
   try {
     const result = await parser.getText();
     return {
@@ -226,16 +210,16 @@ async function readPdf(absPath: string): Promise<ExtractResult> {
   }
 }
 
-export async function extractFile(absPath: string, mimeType: string): Promise<ExtractResult> {
-  const ext = getExtension(absPath);
+export async function extractFile(buf: Buffer, filename: string, mimeType: string): Promise<ExtractResult> {
+  const ext = getExtension(filename);
   try {
-    if (SPREADSHEET_EXTENSIONS.has(ext)) return readSpreadsheet(absPath);
-    if (TEXT_EXTENSIONS.has(ext) || mimeType.startsWith('text/')) return readTextFile(absPath);
+    if (SPREADSHEET_EXTENSIONS.has(ext)) return readSpreadsheet(buf);
+    if (TEXT_EXTENSIONS.has(ext) || mimeType.startsWith('text/')) return readTextFile(buf);
     if (ext === 'docx' || mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-      return await readDocx(absPath);
+      return await readDocx(buf);
     }
-    if (ext === 'doc' || mimeType === 'application/msword') return await readDoc(absPath);
-    if (ext === 'pdf' || mimeType === 'application/pdf') return await readPdf(absPath);
+    if (ext === 'doc' || mimeType === 'application/msword') return await readDoc(buf);
+    if (ext === 'pdf' || mimeType === 'application/pdf') return await readPdf(buf);
     if (IMAGE_EXTENSIONS.has(ext) || mimeType.startsWith('image/')) {
       return { note: 'image content not OCR parsed; dimensions are listed in inventory' };
     }
@@ -243,24 +227,6 @@ export async function extractFile(absPath: string, mimeType: string): Promise<Ex
   } catch (err) {
     return { note: `content extraction failed: ${(err as Error).message}` };
   }
-}
-
-function listFiles(root: string): string[] {
-  if (!fs.existsSync(root)) return [];
-  const out: string[] = [];
-  const walk = (dir: string) => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name.startsWith('.')) continue;
-      const abs = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(abs);
-      } else if (entry.isFile()) {
-        out.push(abs);
-      }
-    }
-  };
-  walk(root);
-  return out.sort((a, b) => a.localeCompare(b));
 }
 
 function referencesForScope(scope: string): string[] {
@@ -337,30 +303,42 @@ export interface BuildFileReviewContextInput {
 }
 
 export async function buildFileReviewContext(input: BuildFileReviewContextInput): Promise<string> {
-  const company = getCustomerCompany();
-  const companyDir = getCustomerUploadDir(company);
-  const files = listFiles(companyDir).slice(0, config.fileReview.maxFilesPerReview);
-  const omittedCount = Math.max(0, listFiles(companyDir).length - files.length);
+  const companyName = getCustomerDisplayName();
+  const prefix = getCustomerKeyPrefix();
+  const store = getObjectStore();
+  const allObjects = await store.list(prefix);
+  const objects = allObjects.slice(0, config.fileReview.maxFilesPerReview);
+  const omittedCount = Math.max(0, allObjects.length - objects.length);
   const inventory: InventoryItem[] = [];
 
-  for (const absPath of files) {
-    const stat = fs.statSync(absPath);
-    const relative = getRelativePath(absPath);
-    const mimeType = mimeTypeFor(absPath, '');
+  for (const obj of objects) {
+    const filename = obj.key.split('/').pop() ?? obj.key;
+    const mimeType = mimeTypeFor(filename, '');
+    // Citation prefers blob URL when present (vercel-blob backend), falls back to key (local-fs).
+    const citation = obj.url ?? obj.key;
     const item: InventoryItem = {
-      path: relative,
+      path: citation,
       type: mimeType,
-      sizeBytes: stat.size,
+      sizeBytes: obj.sizeBytes,
     };
 
-    if (mimeType.startsWith('image/') || IMAGE_EXTENSIONS.has(getExtension(absPath))) {
-      const dimensions = detectImageSize(absPath);
+    let buf: Buffer;
+    try {
+      buf = await store.get(obj.key);
+    } catch (err) {
+      item.note = `content extraction failed: ${(err as Error).message}`;
+      inventory.push(item);
+      continue;
+    }
+
+    if (mimeType.startsWith('image/') || IMAGE_EXTENSIONS.has(getExtension(filename))) {
+      const dimensions = detectImageSize(buf);
       item.imageWidth = dimensions.width;
       item.imageHeight = dimensions.height;
       item.note = dimensions.note;
     }
 
-    const extract = await extractFile(absPath, mimeType);
+    const extract = await extractFile(buf, filename, mimeType);
     item.extractedText = extract.text
       ? truncate(extract.text, config.fileReview.maxExtractCharsPerFile)
       : undefined;
@@ -369,16 +347,16 @@ export async function buildFileReviewContext(input: BuildFileReviewContextInput)
   }
 
   const standards = readStandards(input.scope);
-  const emptyDirective = files.length
+  const emptyDirective = objects.length
     ? ''
     : '\n\n【空文件夹处理】当前公司文件夹没有可检查文件。请直接告诉客户暂未收到可检查资料，并请客户先上传资料；不要编造检查结论。';
   const omittedDirective = omittedCount
-    ? `\n\n【文件数量限制】还有 ${omittedCount} 个文件未纳入本次上下文。请在报告中说明本次只检查了前 ${files.length} 个文件。`
+    ? `\n\n【文件数量限制】还有 ${omittedCount} 个文件未纳入本次上下文。请在报告中说明本次只检查了前 ${objects.length} 个文件。`
     : '';
 
   return `【客户资料检查上下文】
-客户公司：${company}
-公司资料文件夹：${getRelativePath(companyDir)}
+客户公司：${companyName}
+公司资料目录前缀：${prefix}
 客户请求：${input.request}
 检查范围：${input.scope}
 

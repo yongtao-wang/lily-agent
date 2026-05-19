@@ -1,8 +1,7 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from './config';
 import type { ChatMessage, FileRef } from './session';
+import { getObjectStore } from './storage';
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -17,24 +16,24 @@ type AssistantContentBlock =
   | Anthropic.Messages.TextBlockParam
   | Anthropic.Messages.ToolUseBlockParam;
 
-function attachmentsToBlocks(files: FileRef[]): UserContentBlock[] {
+async function attachmentsToBlocks(files: FileRef[]): Promise<UserContentBlock[]> {
+  const store = getObjectStore();
   const blocks: UserContentBlock[] = [];
   for (const f of files) {
-    const absPath = path.isAbsolute(f.path) ? f.path : path.resolve(f.path);
-    if (!fs.existsSync(absPath)) {
-      blocks.push({ type: 'text', text: `[客户上传文件（未找到）: ${f.filename}]` });
-      continue;
-    }
     if (f.mimeType.startsWith('image/')) {
-      const data = fs.readFileSync(absPath).toString('base64');
-      blocks.push({
-        type: 'image',
-        source: {
-          type: 'base64',
-          media_type: f.mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif',
-          data,
-        },
-      });
+      try {
+        const buf = await store.get(f.path);
+        blocks.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: f.mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif',
+            data: buf.toString('base64'),
+          },
+        });
+      } catch {
+        blocks.push({ type: 'text', text: `[客户上传文件（未找到）: ${f.filename}]` });
+      }
     } else {
       const companyNote = f.companyPath ? `，公司资料文件夹：${f.companyPath}` : '';
       blocks.push({
@@ -46,23 +45,25 @@ function attachmentsToBlocks(files: FileRef[]): UserContentBlock[] {
   return blocks;
 }
 
-function chatMessagesToParams(messages: ChatMessage[]): Anthropic.Messages.MessageParam[] {
-  return messages.map((m) => {
-    if (m.role === 'assistant') {
-      return { role: 'assistant' as const, content: m.content };
-    }
-    const blocks: UserContentBlock[] = [];
-    if (m.attachments?.length) {
-      blocks.push(...attachmentsToBlocks(m.attachments));
-    }
-    if (m.content) {
-      blocks.push({ type: 'text', text: m.content });
-    }
-    if (blocks.length === 0) {
-      blocks.push({ type: 'text', text: '(空消息)' });
-    }
-    return { role: 'user' as const, content: blocks };
-  });
+async function chatMessagesToParams(messages: ChatMessage[]): Promise<Anthropic.Messages.MessageParam[]> {
+  return Promise.all(
+    messages.map(async (m) => {
+      if (m.role === 'assistant') {
+        return { role: 'assistant' as const, content: m.content };
+      }
+      const blocks: UserContentBlock[] = [];
+      if (m.attachments?.length) {
+        blocks.push(...(await attachmentsToBlocks(m.attachments)));
+      }
+      if (m.content) {
+        blocks.push({ type: 'text', text: m.content });
+      }
+      if (blocks.length === 0) {
+        blocks.push({ type: 'text', text: '(空消息)' });
+      }
+      return { role: 'user' as const, content: blocks };
+    }),
+  );
 }
 
 export interface ToolUseRecord {
@@ -93,7 +94,7 @@ export async function streamChat(args: StreamChatArgs): Promise<{
     maxIterations = 4,
   } = args;
 
-  const workingMessages: Anthropic.Messages.MessageParam[] = chatMessagesToParams(messages);
+  const workingMessages: Anthropic.Messages.MessageParam[] = await chatMessagesToParams(messages);
 
   let aggregateText = '';
   const allToolUses: ToolUseRecord[] = [];

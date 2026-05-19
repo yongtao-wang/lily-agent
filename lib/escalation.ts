@@ -85,7 +85,7 @@ export function notifyProjectManager(input: EscalationInput): { ok: true } {
     `[${formatTimestamp(new Date())}] ESCALATION`,
     '─────────────────────────────────────────────────────────────',
     `Session:    ${input.sessionId}`,
-    `Customer:   ${config.demoCustomer.company} / ${config.demoCustomer.contact}`,
+    `Customer:   ${config.demoCustomer.displayName} / ${config.demoCustomer.contact}`,
     `Stage:      ${stageLine}`,
     `Reason:     ${input.reason}`,
     `Urgency:    ${input.urgency}`,

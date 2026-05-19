@@ -9,6 +9,7 @@ import FilesDrawer from './FilesDrawer';
 export interface AttachmentRef {
   filename: string;
   path: string;
+  url?: string;
   mimeType: string;
   sizeBytes: number;
   company?: string;

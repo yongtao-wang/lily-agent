@@ -8,13 +8,19 @@ export type LogReason =
   | 'no_files'
   | 'unsupported_type'
   | 'oversize'
-  | 'mkdir_failed'
   | 'arraybuffer_failed'
-  | 'writefile_failed'
-  | 'sidecar_failed'
+  | 'put_failed'
+  | 'meta_put_failed'
+  | 'list_failed'
+  | 'get_failed'
   | 'delete_failed'
   | 'delete_path_traversal'
-  | 'list_sidecar_synthesis_failed';
+  | 'list_sidecar_synthesis_failed'
+  // Deprecated since the storage migration; kept for one release so log readers
+  // built against the old vocabulary don't crash.
+  | 'mkdir_failed'
+  | 'writefile_failed'
+  | 'sidecar_failed';
 
 const MAX_MESSAGE_CHARS = 240;
 

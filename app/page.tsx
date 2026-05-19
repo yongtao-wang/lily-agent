@@ -11,13 +11,13 @@ export default function Home() {
   return (
     <main className="flex flex-col h-screen">
       <DemoBanner
-        company={config.demoCustomer.company}
+        company={config.demoCustomer.displayName}
         contact={config.demoCustomer.contact}
       />
       <ChatWindow
         initialSessionId={initialSessionId}
         stages={config.stages as unknown as Array<{ id: string; label: string }>}
-        customerCompany={config.demoCustomer.company}
+        customerCompany={config.demoCustomer.displayName}
       />
     </main>
   );

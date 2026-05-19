@@ -3,8 +3,14 @@ export const config = {
   maxTokens: 1800,
   temperature: 0.3,
 
+  // id is PERMANENT — it becomes the storage-key prefix (customers/<id>/...) and
+  // changing it after first upload orphans every blob ever stored for this customer.
+  // displayName is what 小鹏 says, the banner shows, and the report uses; edit freely.
+  // For future multi-tenant: replace this with a customers table / KV namespace and
+  // generate id via slugify(displayName) + nanoid suffix, or pure nanoid for opacity.
   demoCustomer: {
-    company: '东永盛',
+    id: '东永盛',
+    displayName: '东永盛',
     contact: '王总',
   },
 
