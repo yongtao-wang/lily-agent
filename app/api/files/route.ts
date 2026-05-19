@@ -15,6 +15,7 @@ import {
   type FileMeta,
 } from '@/lib/file-meta';
 import { removeFiles } from '@/lib/session';
+import { logFileEvent } from '@/lib/log';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,12 +43,24 @@ export async function GET() {
     if (!meta) {
       const { uploadedAt, originalName } = parseDiskFilename(entry.name);
       const stat = fs.statSync(absPath);
-      meta = await computeFileMeta(
-        absPath,
-        originalName,
-        uploadedAt || stat.mtimeMs,
-      );
-      writeSidecar(absPath, meta);
+      try {
+        meta = await computeFileMeta(
+          absPath,
+          originalName,
+          uploadedAt || stat.mtimeMs,
+        );
+        writeSidecar(absPath, meta);
+      } catch (err) {
+        const e = err as NodeJS.ErrnoException;
+        logFileEvent('files', 'error', 'list_sidecar_synthesis_failed', {
+          company,
+          diskName: entry.name,
+          filename: originalName,
+          code: e.code,
+          message: e.message,
+        });
+        continue;
+      }
     }
     rows.push({ filename: entry.name, ...meta });
   }
@@ -77,12 +90,17 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
+  const sessionId = typeof body.sessionId === 'string' ? body.sessionId : undefined;
   const filenames = Array.isArray(body.filenames) ? body.filenames : [];
   if (filenames.length === 0) {
     return NextResponse.json({ error: 'filenames required' }, { status: 400 });
   }
   for (const name of filenames) {
     if (isUnsafe(String(name))) {
+      logFileEvent('files', 'warn', 'delete_path_traversal', {
+        sessionId,
+        filename: String(name),
+      });
       return NextResponse.json(
         { error: `unsafe filename: ${String(name)}` },
         { status: 400 },
@@ -100,6 +118,11 @@ export async function DELETE(req: NextRequest) {
   for (const raw of filenames as string[]) {
     const absPath = path.resolve(baseDir, raw);
     if (!(absPath + path.sep).startsWith(baseResolved) && absPath !== path.resolve(baseDir)) {
+      logFileEvent('files', 'warn', 'delete_path_traversal', {
+        sessionId,
+        filename: raw,
+        message: 'path escapes company folder',
+      });
       errors.push({ filename: raw, reason: 'path escapes company folder' });
       continue;
     }
@@ -109,12 +132,19 @@ export async function DELETE(req: NextRequest) {
       deleted.push(raw);
     } catch (err) {
       const e = err as NodeJS.ErrnoException;
+      logFileEvent('files', 'error', 'delete_failed', {
+        sessionId,
+        company,
+        filename: raw,
+        code: e.code,
+        message: e.message,
+      });
       errors.push({ filename: raw, reason: e.code ?? e.message });
     }
   }
 
-  if (typeof body.sessionId === 'string' && body.sessionId && deleted.length) {
-    removeFiles(body.sessionId, deleted);
+  if (sessionId && deleted.length) {
+    removeFiles(sessionId, deleted);
   }
 
   return NextResponse.json({ deleted, errors });
