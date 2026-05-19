@@ -8,7 +8,8 @@ import {
   getExtension,
   mimeTypeFor,
 } from './customer-files';
-import { getObjectStore } from './storage';
+import { logFileEvent } from './log';
+import { getObjectStore, getStorageBackend } from './storage';
 
 export const fileReviewTool = {
   name: 'review_customer_files',
@@ -306,7 +307,29 @@ export async function buildFileReviewContext(input: BuildFileReviewContextInput)
   const companyName = getCustomerDisplayName();
   const prefix = getCustomerKeyPrefix();
   const store = getObjectStore();
-  const allObjects = await store.list(prefix);
+  const backend = getStorageBackend();
+  let allObjects;
+  try {
+    allObjects = await store.list(prefix);
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    logFileEvent('files', 'error', 'list_failed', {
+      caller: 'review',
+      prefix,
+      backend,
+      scope: input.scope,
+      code: e.code,
+      message: e.message,
+    });
+    throw err;
+  }
+  logFileEvent('files', 'warn', 'list_ok', {
+    caller: 'review',
+    prefix,
+    backend,
+    count: allObjects.length,
+    scope: input.scope,
+  });
   const objects = allObjects.slice(0, config.fileReview.maxFilesPerReview);
   const omittedCount = Math.max(0, allObjects.length - objects.length);
   const inventory: InventoryItem[] = [];
@@ -326,7 +349,15 @@ export async function buildFileReviewContext(input: BuildFileReviewContextInput)
     try {
       buf = await store.get(obj.key);
     } catch (err) {
-      item.note = `content extraction failed: ${(err as Error).message}`;
+      const e = err as NodeJS.ErrnoException;
+      logFileEvent('files', 'error', 'get_failed', {
+        caller: 'review',
+        key: obj.key,
+        backend,
+        code: e.code,
+        message: e.message,
+      });
+      item.note = `content extraction failed: ${e.message}`;
       inventory.push(item);
       continue;
     }

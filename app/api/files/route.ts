@@ -8,7 +8,7 @@ import {
   parseDiskFilename,
   type FileMeta,
 } from '@/lib/file-meta';
-import { getMetaStore, getObjectStore } from '@/lib/storage';
+import { getMetaStore, getObjectStore, getStorageBackend } from '@/lib/storage';
 import { removeFiles } from '@/lib/session';
 import { logFileEvent } from '@/lib/log';
 
@@ -33,12 +33,21 @@ export async function GET() {
   } catch (err) {
     const e = err as NodeJS.ErrnoException;
     logFileEvent('files', 'error', 'list_failed', {
+      caller: 'drawer',
       prefix,
+      backend: getStorageBackend(),
       code: e.code,
       message: e.message,
     });
     return NextResponse.json({ files: [], company }, { status: 200 });
   }
+
+  logFileEvent('files', 'warn', 'list_ok', {
+    caller: 'drawer',
+    prefix,
+    backend: getStorageBackend(),
+    count: objects.length,
+  });
 
   const rows: FileRow[] = [];
   for (const obj of objects) {
@@ -46,8 +55,21 @@ export async function GET() {
     let meta = await metaStore.get(obj.key);
     if (!meta) {
       const { uploadedAt, originalName } = parseDiskFilename(diskName);
+      let buf: Buffer;
       try {
-        const buf = await objectStore.get(obj.key);
+        buf = await objectStore.get(obj.key);
+      } catch (err) {
+        const e = err as NodeJS.ErrnoException;
+        logFileEvent('files', 'error', 'get_failed', {
+          caller: 'drawer',
+          key: obj.key,
+          backend: getStorageBackend(),
+          code: e.code,
+          message: e.message,
+        });
+        continue;
+      }
+      try {
         meta = await computeFileMeta(buf, originalName, uploadedAt || obj.uploadedAt);
         await metaStore.put(obj.key, meta);
       } catch (err) {

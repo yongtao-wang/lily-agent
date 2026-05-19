@@ -11,6 +11,7 @@ export type LogReason =
   | 'arraybuffer_failed'
   | 'put_failed'
   | 'meta_put_failed'
+  | 'list_ok'
   | 'list_failed'
   | 'get_failed'
   | 'delete_failed'
