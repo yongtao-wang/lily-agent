@@ -133,7 +133,7 @@ The tool_result string is laid out as:
 
 ```
 【客户资料检查上下文】
-客户公司：Gregarious Simulation Systems
+客户公司：<displayName>
 公司资料文件夹：customers/gss
 客户请求：<original request>
 检查范围：<scope>
@@ -155,14 +155,14 @@ The tool_result string is laid out as:
 【文件清单】
 | Path | Type | Size | Image dimensions | Note |
 |---|---|---:|---|---|
-| `customers/gss/...` | image/png | 8 KB | 1x1 |  |
+| `customers/<id>/...` | image/png | 8 KB | 1x1 |  |
 | ...
 
 【可读内容提取】
-### customers/gss/lily-review.txt
+### customers/<id>/lily-review.txt
 <text up to maxExtractCharsPerFile chars>
 
-### customers/gss/lily-review.xlsx
+### customers/<id>/lily-review.xlsx
 Sheet: 资料
 首页 | 主视觉文案 |
 产品详情 | 型号A 参数 |

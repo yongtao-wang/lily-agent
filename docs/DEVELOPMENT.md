@@ -33,7 +33,7 @@ The 13 ACs from spec §13, mapped to test recipes. Run the dev server before any
 | AC | What to verify | How |
 |---|---|---|
 | 1 | Page loads at localhost:3000 | `curl -sf http://localhost:3000/ \| head -c 200` returns HTML |
-| 2 | DEMO MODE banner shows Gregarious Simulation Systems / 王总 | `curl -s http://localhost:3000/ \| grep -oE 'DEMO MODE\|Gregarious Simulation Systems\|王总'` |
+| 2 | DEMO MODE banner shows displayName / contact | `curl -s http://localhost:3000/ \| grep -oE 'DEMO MODE\|Gregarious Simulation Systems\|业务部'` (literal values are the current `lib/config.ts::demoCustomer.displayName` / `.contact` — substitute if renamed) |
 | 3 | Opening message + 6 stage buttons + 跳过 | `curl -s http://localhost:3000/ \| grep -oE '资料收集\|首页设计\|跳过'` |
 | 4 | Stage button → 小鹏 acks with stage talking points | Open browser, click `首页设计`, verify response references 图片素材 + 本周 |
 | 5 | QA-style question → standard-flavored answer | Type "我想看你们给别人做的详情页参考"; verify 小鹏 redirects to placeholder or offers alternatives |
@@ -52,7 +52,7 @@ The file-review feature is not part of the original 13 ACs. Its smoke test lives
 
 ## 3. Upload endpoint tests
 
-Heads-up: uploads no longer land in `uploads/{sessionId}/`. The route resolves `getCustomerKeyPrefix()` (currently `customers/gss`, derived from `config.demoCustomer.id`) and writes via the storage adapter — `uploads/customers/gss/` for the local-fs backend, or the same prefix in Vercel Blob when `BLOB_READ_WRITE_TOKEN` is set. The returned `FileRef` includes `company` (displayName), `companyPath` (the key prefix), and `url` (blob URL when applicable).
+Heads-up: uploads no longer land in `uploads/{sessionId}/`. The route resolves `getCustomerKeyPrefix()` (currently `customers/gss`, derived from `config.demoCustomer.id`) and writes via the storage adapter — `uploads/customers/<id>/` for the local-fs backend, or the same prefix in Vercel Blob when `BLOB_READ_WRITE_TOKEN` is set. The returned `FileRef` includes `company` (displayName), `companyPath` (the key prefix), and `url` (blob URL when applicable).
 
 ### Valid PNG (AC #6)
 
@@ -65,10 +65,10 @@ curl -sS -X POST http://localhost:3000/api/upload \
   -F "files=@/tmp/test.png;type=image/png"
 
 # Verify
-ls -la uploads/customers/gss/
+ls -la uploads/customers/<id>/
 ```
 
-Expected: JSON like `{"files":[{"filename":"test.png","path":"customers/gss/...","mimeType":"image/png","sizeBytes":68,"company":"Gregarious Simulation Systems","companyPath":"customers/gss"}]}`, file present in `uploads/customers/gss/`.
+Expected: JSON like `{"files":[{"filename":"test.png","path":"customers/gss/...","mimeType":"image/png","sizeBytes":68,"company":"Gregarious Simulation Systems","companyPath":"customers/gss"}]}`, file present in `uploads/customers/<id>/`.
 
 ### Valid xlsx (file-review feature)
 
@@ -188,7 +188,7 @@ In a browser: open localhost:3000, click a stage, send a message, then hard-refr
 
 ### Materials review (file-review feature)
 
-Smoke test for `review_customer_files`. Make sure `uploads/customers/gss/` has at least one file (use the upload curl above or drop a file in via the UI).
+Smoke test for `review_customer_files`. Make sure `uploads/customers/<id>/` has at least one file (use the upload curl above or drop a file in via the UI).
 
 ```bash
 curl -sN -X POST http://localhost:3000/api/chat \
@@ -197,7 +197,7 @@ curl -sN -X POST http://localhost:3000/api/chat \
   --max-time 90
 ```
 
-Expected: SSE stream containing a bilingual report ("资料检查结果 / Materials Readiness Review") with a `模块 / Module` table that uses only the four allowed statuses (`符合 / 缺失 / 需确认 / 可优化`) and cites file paths like `uploads/customers/gss/...` as evidence. Ends with `{"type":"done"}`. No `escalated` event.
+Expected: SSE stream containing a bilingual report ("资料检查结果 / Materials Readiness Review") with a `模块 / Module` table that uses only the four allowed statuses (`符合 / 缺失 / 需确认 / 可优化`) and cites file paths like `uploads/customers/<id>/...` as evidence. Ends with `{"type":"done"}`. No `escalated` event.
 
 Negative test — make sure a pure upload turn does **not** trigger the tool:
 

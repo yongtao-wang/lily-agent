@@ -11,7 +11,7 @@ export const config = {
   demoCustomer: {
     id: 'gss',
     displayName: 'Gregarious Simulation Systems',
-    contact: '王总',
+    contact: '业务部',
   },
 
   stages: [
