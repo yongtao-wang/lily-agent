@@ -1,4 +1,4 @@
-import { del, get as getBlob, head, list, put } from '@vercel/blob';
+import { BlobNotFoundError, del, get as getBlob, head, list, put } from '@vercel/blob';
 import type { FileMeta } from '../file-meta';
 import type { MetaStore, ObjectStore, StoredObject } from './types';
 
@@ -44,7 +44,12 @@ export class VercelBlobObjectStore implements ObjectStore {
   }
 
   async delete(key: string): Promise<void> {
-    await del(key);
+    try {
+      await del(key);
+    } catch (err) {
+      if (err instanceof BlobNotFoundError) return;
+      throw err;
+    }
   }
 
   async list(prefix: string): Promise<StoredObject[]> {
